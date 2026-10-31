@@ -1,12 +1,53 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
- <application android:theme="@style/AppTheme" android:label="书边译" android:allowBackup="false" android:supportsRtl="true">
-  <activity android:name=".MainActivity" android:screenOrientation="unspecified" android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|density" android:windowSoftInputMode="stateVisible|adjustResize" android:exported="true">
-   <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
-   <intent-filter><action android:name="android.intent.action.PROCESS_TEXT"/><category android:name="android.intent.category.DEFAULT"/><data android:mimeType="text/plain"/></intent-filter>
-   <intent-filter><action android:name="colordict.intent.action.SEARCH"/></intent-filter>
-  <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
-  </activity>
-  <service android:name=".ShubianTileService" android:label="书边译" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true"><intent-filter><action android:name="android.service.quicksettings.action.QS_TILE"/></intent-filter></service>
-  <receiver android:exported="false" android:name=".SearchWidgetProvider" android:label="书边译"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info"/></receiver>
- </application>
+    <uses-permission android:name="android.permission.INTERNET" />
+    <queries>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+        <intent><action android:name="android.media.action.IMAGE_CAPTURE" /></intent>
+    </queries>
+    <application android:theme="@style/AppTheme" android:label="书边译" android:icon="@drawable/ic_launcher"
+        android:allowBackup="false" android:supportsRtl="true">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|density|keyboard|keyboardHidden"
+            android:windowSoftInputMode="stateHidden|adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="application/epub+zip" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="app.shubian.SCAN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
+        </activity>
+        <activity android:name=".LookupActivity" android:exported="true" android:theme="@style/CardTheme"
+            android:label="书边译" android:taskAffinity="" android:excludeFromRecents="true" android:launchMode="standard"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|density|keyboard|keyboardHidden"
+            android:windowSoftInputMode="stateHidden|adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="colordict.intent.action.SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <provider android:name=".ImageProvider" android:authorities="app.shubian.images" android:exported="false"
+            android:grantUriPermissions="true" />
+        <service android:name=".ShubianTileService" android:label="书边译" android:icon="@drawable/ic_tile" android:exported="true"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+        </service>
+        <receiver android:name=".SearchWidgetProvider" android:exported="false" android:label="书边译">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info" />
+        </receiver>
+    </application>
 </manifest>

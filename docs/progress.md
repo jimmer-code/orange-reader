@@ -37,3 +37,19 @@
 - 检查：`./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；debug APK 2.4 MB，release APK 52 KB（R8/资源压缩后，已用本机 debug keystore 签名）。
 - 截图：`docs/screens/M5/`；未运行模拟器，未生成设备截图。
 - 偏差：此环境没有接入 ML Kit 内置模型依赖，M5 当前以离线候选和扫描流程占位；Jev 两步请求与 OCR 实际识别需后续接入依赖和 API。
+
+## M6 按原型重做
+- 界面改为一个全屏 WebView 加载 `assets/web/`（原型的 HTML/CSS/JS 直接移植），原生 Java 通过 `window.Native` 提供词典、EPUB、OCR、TTS、Jev、导出等能力；书内资源经 `https://app.local/book/<id>/…` 从 zip 直接读取。
+- 词典：`tools/build_dict.py` 从 ECDICT 生成 57,183 词条、50,077 个变形（5.3 MB），`tools/supplement.tsv` 补 spleen/hypo 的旧义。
+- 阅读器：CSS 多栏分页，按（章节，字符偏移）记位置，后台测全书页数；目录锚点决定页眉章名；长按或双击查词，收藏词加虚线；外屏单页、内屏双页，展开折叠保持位置；仿真、滑动、淡入、无四种翻页，系统关闭动画时直接切换。
+- 出版社 CSS 整体丢弃，只保留图片的百分比宽度（避免章首花饰被拉满整栏）。
+- 拍照查词：ML Kit 内置模型识别，过滤专名、常见词和已认识词，再用 Jev 两步判断（noul 选难词，choice 选本句义项）；无网络时按词频给前 20 个。
+- 实测书目：Moby Dick、Pride and Prejudice、`~/workspace/读书` 中的 The Status Game、Reset、The Infinity Machine、The Secrets We Kept、Dune 六部合集（341 个 spine 文件）。
+- 检查：`./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；debug APK 28 MB，release APK 19 MB（ML Kit 模型约占 15 MB，仅 arm64-v8a）。
+- 截图：`docs/screens/M6/`（Fold_DS_API36 模拟器，外屏 1168×1712、内屏 2364×1672）。
+- 偏差：
+  - 界面用 WebView 而不是原生 View，语言是 Java 而不是 Kotlin。原因：与原型像素和交互一致，且原型代码可直接复用。
+  - Jev Key 按用户要求在构建时从 `local.properties` 的 `jev.key` 或 `~/workspace/sandbox/road-scout-mcp/.env` 注入 `BuildConfig`，会进入 APK，但不进 Git；设置页不再要求填写。
+  - Typesafe 对中国大陆返回 HTTP 451，手机需代理或 VPN 才能用 Jev；否则走离线词频判断。
+  - 前缀查询按词频排序，`sp` 首屏是 speak、spend 等常用词，不再包含 spleen。
+  - 「原色」「粗体」主题在系统深色模式下改用深色底。

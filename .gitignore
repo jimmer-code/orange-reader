@@ -6,3 +6,4 @@ local.properties
 .env
 .idea/
 .DS_Store
+tools/cache/

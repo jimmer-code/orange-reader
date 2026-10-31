@@ -1,0 +1,1414 @@
+"use strict";
+/* 书边译：界面和交互来自 prototype/index.html，数据和系统能力由原生 window.Native 提供。 */
+const N = window.Native;
+const params = new URLSearchParams(location.search);
+const CARD = params.get("mode") === "card";
+const kv = {
+  get(k, d) { try { const v = N.kvGet(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { N.kvSet(k, JSON.stringify(v)); }
+};
+const handlers = {};
+window.onNative = (type, data) => { const h = handlers[type]; if (h) h(data); };
+
+const DEFAULT_LEVEL = "Chinese native speaker reading English novels; passed CET-6 (about 6000 English words); comfortable with everyday and news vocabulary, weak on literary, archaic and nautical words.";
+const settings = Object.assign({ level: DEFAULT_LEVEL, trUrl: "https://api.deepseek.com/v1", trModel: "deepseek-chat", volume: false }, kv.get("settings", {}));
+const RS = kv.get("reader", {});
+
+/* ===================== 状态 ===================== */
+const st = {
+  screen: "outer", k: 1, tab: "physical", filter: "all", book: null, busy: false, kb: false,
+  theme: RS.theme || "original", font: RS.font || "literata", size: RS.size || 18, turn: RS.turn || "curl", spread: RS.spread !== false,
+  words: "all", query: "", pick: null, pickSrc: null, more: false, scan: null
+};
+const saved = new Map(kv.get("saved", []));      // lemma → { src, type, t, book, pos, sentence, sense, word }
+const recents = kv.get("recents", []);
+const known = new Set(kv.get("known", []));
+const bookmarks = kv.get("bookmarks", {});        // bookId → [{ ch, off }]
+const prog = kv.get("prog", {});                  // bookId → { ch, off, progress, status, opened }
+let BOOKS = CARD ? [] : JSON.parse(N.books());
+const saveSaved = () => kv.set("saved", [...saved]);
+const saveProg = () => kv.set("prog", prog);
+const saveReaderPrefs = () => kv.set("reader", { theme: st.theme, font: st.font, size: st.size, turn: st.turn, spread: st.spread });
+const progOf = id => prog[id] || (prog[id] = { ch: 0, off: 0, progress: 0, status: "new" });
+
+/* ===================== 工具 ===================== */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const darkUI = () => matchMedia("(prefers-color-scheme: dark)").matches;
+const dims = () => [innerWidth, innerHeight];
+const qid = w => w.replace(/[^a-z0-9]/g, "_");
+const hash = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+const I = {
+  lib: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3.5" y="4" width="4.5" height="16" rx="1"/><rect x="9.5" y="4" width="4.5" height="16" rx="1"/><path d="M16 5.2l3.9-1 2.6 15.7-3.9 1z"/></svg>',
+  words: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M6 3.5h12a1 1 0 0 1 1 1v16l-7-4-7 4v-16a1 1 0 0 1 1-1z"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 7h14M5 12h14M5 17h9"/></svg>',
+  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r=".6" fill="currentColor"/><circle cx="4.5" cy="12" r=".6" fill="currentColor"/><circle cx="4.5" cy="18" r=".6" fill="currentColor"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>',
+  aa: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18l5-12 5 12M4.8 14h6.4M15 18l3-7.5 3 7.5M15.9 16h4.2"/></svg>',
+  star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6-5-2.7-5 2.7.9-5.6-4-3.9 5.6-.8z"/></svg>',
+  starOn: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6-5-2.7-5 2.7.9-5.6-4-3.9 5.6-.8z"/></svg>',
+  bm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 3.5h10v17l-5-3.5-5 3.5z"/></svg>',
+  bmOn: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 3.5h10v17l-5-3.5-5 3.5z"/></svg>',
+  speak: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M4 8h3l1.6-2.5h6.8L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  photo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M3.5 16l5-5 4 4 2.5-2.5 5 5"/><circle cx="15.5" cy="9" r="1.4"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>'
+};
+
+/* ===================== 词典 ===================== */
+const infoCache = new Map();
+function parseTrans(t) {
+  const seen = new Set(), out = [];
+  for (let line of t.split("\n")) {
+    line = line.trim();
+    if (!line || line.startsWith("[网络]")) continue;
+    let pos = "", m;
+    if ((m = line.match(/^([a-z]+\.)\s*(.*)$/))) { pos = m[1]; line = m[2]; }
+    else if ((m = line.match(/^(\[[^\]]+\])\s*(.*)$/))) { pos = m[1]; line = m[2]; }
+    line = line.replace(/,\s*/g, "，").replace(/;\s*/g, "；");
+    if (!line || seen.has(pos + line)) continue;
+    seen.add(pos + line); out.push([pos, line]);
+  }
+  return out;
+}
+function lookupWord(raw) {
+  const key = String(raw).toLowerCase();
+  if (infoCache.has(key)) return infoCache.get(key);
+  const o = JSON.parse(N.lookup(raw));
+  const info = { word: o.word, lemma: o.lemma, form: o.form || null, phonetic: o.phonetic || "", found: !!o.found,
+    lines: o.found ? parseTrans((o.own ? o.own + "\n" : "") + o.trans) : [] };
+  infoCache.set(key, info);
+  return info;
+}
+// Jev choice 题的选项：把每行释义按逗号、分号拆开，去重，最多 12 个
+function senseItems(info) {
+  const out = [], seen = new Set();
+  info.lines.forEach(([, l], i) => l.split(/[，；]/).forEach(s => {
+    s = s.replace(/〈[^〉]*〉/g, "").trim();
+    if (s && !seen.has(s) && out.length < 12) { seen.add(s); out.push([s, i]); }
+  }));
+  return out;
+}
+function senseOf(lemma) { const i = lookupWord(lemma); return i.lines[0] ? i.lines[0][1] : ""; }
+function speak(t) { N.speak(t); }
+
+/* ---------- Jev ---------- */
+let jevSeq = 0;
+const jevWait = {};
+handlers.jev = d => {
+  const w = jevWait[d.id]; if (!w) return; delete jevWait[d.id];
+  const status = +d.status;
+  if (status !== 200) { w.rej(new Error(status ? "Jev 返回 " + status : "网络不可用")); return; }
+  try { w.res(JSON.parse(d.body).answers || {}); } catch (e) { w.rej(e); }
+};
+function jevAsk(passage, questions) {
+  return new Promise((res, rej) => {
+    const id = ++jevSeq; jevWait[id] = { res, rej };
+    N.jev(id, JSON.stringify({ model: "jev-latest", state: { reader: settings.level, passage }, questions }));
+  });
+}
+const NOUL = {
+  question: "Would this reader need to look up this word to understand it as used in the passage?",
+  criteria: { true: "The reader probably does not know this word, or does not know the sense it has in this passage.", false: "The reader already knows this word in the sense used here." }
+};
+function senseQuestion(word, items) {
+  return { type: "choice", instructions: `Which sense does '${word}' have in this passage?`, criteria: Object.fromEntries(items.map(([s]) => [s, null])) };
+}
+
+/* ---------- 整句翻译、问 AI ---------- */
+let trSeq = 0;
+const trWait = {};
+handlers.tr = d => { const f = trWait[d.id]; if (f) f(d); if (d.done || d.error) delete trWait[d.id]; };
+function streamTr(text, ask, target) {
+  const id = ++trSeq; let out = "";
+  target.textContent = "…";
+  trWait[id] = d => {
+    if (d.delta) { out += d.delta; target.textContent = out; }
+    if (d.error) target.textContent = out || d.error;
+  };
+  N.translate(id, text, ask);
+}
+
+/* ===================== 外壳 ===================== */
+const scr = $("#scr");
+scr.innerHTML = CARD ? `
+  <div class="scrim" id="scrim"></div>
+  <div class="sheet" id="sheet" role="dialog"></div>
+  <div class="toast" id="toast"></div>` : `
+  <div class="app">
+    <nav class="nav" aria-label="主导航">
+      <div class="brand">书边译</div>
+      <button data-tab="physical" aria-current="true">${I.search}<span>查单词</span></button>
+      <button data-tab="library" aria-current="false">${I.lib}<span>书库</span></button>
+      <button data-tab="words" aria-current="false">${I.words}<span>生词本</span></button>
+      <button class="gear" data-act="settings">${I.gear}<span>设置</span></button>
+    </nav>
+    <div class="views">
+      <section class="view v-physical home" id="v-physical"></section>
+      <section class="view v-library" id="v-library" hidden></section>
+      <section class="view v-words" id="v-words" hidden></section>
+    </div>
+  </div>
+  <div class="scrim" id="scrim"></div>
+  <div class="sheet" id="sheet" role="dialog"></div>
+  <div class="cam" id="cam"></div>
+  <div class="toast" id="toast"></div>`;
+const scrim = $("#scrim"), sheet = $("#sheet"), toastEl = $("#toast"), cam = $("#cam");
+
+window.setInsets = (t, b, l, r, kb) => {
+  const s = document.documentElement.style;
+  s.setProperty("--sat", t + "px"); s.setProperty("--sab", b + "px"); s.setProperty("--sal", l + "px"); s.setProperty("--sar", r + "px");
+  st.kb = kb; scr.classList.toggle("kb", kb);
+};
+const sat = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sat")) || 28;
+
+function fit() {
+  st.screen = innerWidth >= 600 ? "inner" : "outer";
+  scr.classList.toggle("outer", st.screen === "outer"); scr.classList.toggle("inner", st.screen === "inner");
+}
+
+let toastT;
+function toast(msg) { toastEl.textContent = msg; toastEl.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove("on"), 1600); }
+handlers.toast = toast;
+
+/* ---------- 底部卡片 ---------- */
+let sheetClose = null;
+function openSheet(html, cls = "", onClose = null) {
+  sheet.className = "sheet " + cls; sheet.innerHTML = `<div class="grab"></div>${html}`;
+  scrim.classList.add("on");
+  requestAnimationFrame(() => requestAnimationFrame(() => sheet.classList.add("on")));
+  sheetClose = onClose;
+}
+function closeSheet() {
+  if (!sheet.classList.contains("on")) return;
+  sheet.classList.remove("on"); scrim.classList.remove("on");
+  if (document.activeElement?.closest?.("#sheet")) { document.activeElement.blur(); if (st.kb) N.keyboard(false); }
+  if (sheetClose) { const f = sheetClose; sheetClose = null; f(); }
+}
+scrim.addEventListener("click", closeSheet);
+// 下拉关闭
+(() => {
+  let y0 = null, dy = 0;
+  sheet.addEventListener("pointerdown", e => {
+    const body = e.target.closest(".sh-body");
+    if (e.target.closest("input, textarea, button") || (body && body.scrollTop > 0)) return;
+    y0 = e.clientY; dy = 0;
+  });
+  sheet.addEventListener("pointermove", e => {
+    if (y0 == null) return;
+    dy = Math.max(0, e.clientY - y0);
+    if (dy > 6) { sheet.style.transition = "none"; sheet.style.transform = `translateY(${dy}px)`; }
+  });
+  const end = () => {
+    if (y0 == null) return; y0 = null;
+    sheet.style.transition = ""; sheet.style.transform = "";
+    if (dy > 90) closeSheet();
+  };
+  sheet.addEventListener("pointerup", end); sheet.addEventListener("pointercancel", end);
+})();
+
+/* ---------- 标签切换 ---------- */
+function setTab(tab, focus = true) {
+  st.tab = tab; st.pick = null;
+  $$(".nav button[data-tab]").forEach(b => b.setAttribute("aria-current", b.dataset.tab === tab));
+  $$(".view").forEach(v => { const on = v.id === "v-" + tab; v.hidden = !on; if (on) { v.classList.remove("enter"); void v.offsetWidth; v.classList.add("enter"); } });
+  render(tab);
+  if (tab === "physical" && focus) focusQuery();
+  else if (st.kb) N.keyboard(false);
+}
+function render(tab) { ({ library: renderLibrary, physical: renderPhysical, words: renderWords })[tab](); }
+function focusQuery() { setTimeout(() => { const q = $("#q"); if (q && !st.book && !cam.classList.contains("on")) { q.focus({ preventScroll: true }); N.keyboard(true); } }, 60); }
+if (!CARD) {
+  $(".nav").addEventListener("click", e => {
+    const b = e.target.closest("button[data-tab]"); if (b) { setTab(b.dataset.tab); return; }
+    if (e.target.closest('[data-act="settings"]')) openSettings();
+  });
+}
+handlers.tab = t => { if (!st.book && !cam.classList.contains("on")) setTab(t, t === "physical"); };
+
+/* ===================== 书库 ===================== */
+const PALETTES = [
+  ["#113264", "#0090ff", "#fbfdff", "waves"], ["#fef7f9", "#e93d82", "#621639", "frame"], ["#203c25", "#46a758", "#f6fbf6", "lines"],
+  ["#f2f0e7", "#978365", "#3b352b", "sun"], ["#64172b", "#e54666", "#fff7f8", "diamond"], ["#53195d", "#ab4aba", "#fdf7fd", "lines"],
+  ["#ffc53d", "#f76b15", "#4f3422", "rays"], ["#0d3d38", "#12a594", "#f3fbf9", "waves"]
+];
+function coverHTML(b) {
+  if (b.cover) return `<div class="cover"><img src="${esc(b.cover)}" alt="" decoding="async"></div>`;
+  const [c1, c2, cf, motif] = PALETTES[parseInt(hash(b.title + b.author), 36) % PALETTES.length];
+  return `<div class="cover" style="--c1:${c1};--c2:${c2};--cf:${cf}"><div class="m m-${motif}"></div><div class="cv-t">${esc(b.title)}</div><div class="cv-a">${esc(b.author)}</div></div>`;
+}
+function renderLibrary() {
+  const v = $("#v-library");
+  const stat = b => progOf(b.id).status;
+  const cur = BOOKS.filter(b => stat(b) === "reading").sort((a, b) => (progOf(b.id).opened || 0) - (progOf(a.id).opened || 0))[0];
+  const list = BOOKS.filter(b => st.filter === "all" || (st.filter === "reading" ? stat(b) !== "done" : stat(b) === "done"));
+  const meta = b => b.importing ? '<span class="ring"></span>' : stat(b) === "new" ? '<span class="badge">新</span>' : stat(b) === "done" ? "读完" : Math.round(progOf(b.id).progress * 100) + "%";
+  v.innerHTML = `
+    <div class="lg-head"><h2>书库</h2><button class="circle" data-act="import" aria-label="导入 ePub">${I.plus}</button></div>
+    ${cur ? `<button class="cont" data-open="${cur.id}">
+      <div class="cv-w">${coverHTML(cur)}</div>
+      <div class="info"><span class="k">继续阅读</span><span class="t">${esc(cur.title)}</span><span class="a">${esc(cur.author)}</span>
+        <div class="bar"><i style="width:${Math.max(3, progOf(cur.id).progress * 100)}%"></i></div></div>
+    </button>` : ""}
+    ${BOOKS.length ? `<div class="sec-t">全部图书</div>
+    <div class="chips">${[["all", "全部"], ["reading", "在读"], ["done", "读完"]].map(([k, t]) => `<button data-filter="${k}" aria-pressed="${st.filter === k}">${t}</button>`).join("")}</div>
+    <div class="grid">${list.map(b => `<button class="book${b.importing ? " importing" : ""}" data-open="${b.id}"><div class="cv-w">${coverHTML(b)}</div><div class="meta">${meta(b)}</div></button>`).join("")}</div>`
+    : '<div class="lib-empty">点右上角的 + 导入 ePub</div>'}`;
+}
+if (!CARD) {
+  const lib = $("#v-library");
+  let pressT = null, longed = false;
+  lib.addEventListener("pointerdown", e => {
+    const b = e.target.closest(".book"); longed = false; if (!b) return;
+    pressT = setTimeout(() => { longed = true; bookMenu(b.dataset.open); }, 500);
+  });
+  const cancel = () => clearTimeout(pressT);
+  lib.addEventListener("pointerup", cancel); lib.addEventListener("pointercancel", cancel);
+  lib.addEventListener("pointermove", cancel);
+  lib.addEventListener("contextmenu", e => e.preventDefault());
+  lib.addEventListener("click", e => {
+    if (longed) { longed = false; return; }
+    const f = e.target.closest("[data-filter]"); if (f) { st.filter = f.dataset.filter; renderLibrary(); return; }
+    if (e.target.closest('[data-act="import"]')) { N.importBooks(); return; }
+    const o = e.target.closest("[data-open]"); if (o && !o.classList.contains("importing")) openBook(o.dataset.open, o.querySelector(".cover"));
+  });
+}
+function bookMenu(id) {
+  const b = BOOKS.find(x => x.id === id); if (!b) return;
+  const done = progOf(id).status === "done";
+  openSheet(`<div class="sh-head"><h3>${esc(b.title)}</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
+    <div class="sh-body flush"><ul class="actlist"><li><button data-bk="toggle">${done ? "标为未读" : "标为读完"}</button></li><li><button class="danger" data-bk="delete">删除</button></li></ul></div>`);
+  sheet.dataset.book = id;
+}
+handlers.import = d => {
+  if (d.state === "error") { toast(d.msg); return; }
+  const b = Object.assign(d.book, { importing: true });
+  BOOKS = [b, ...BOOKS.filter(x => x.id !== b.id)];
+  st.filter = "all";
+  if (st.tab !== "library") setTab("library", false); else renderLibrary();
+  $("#v-library").scrollTo({ top: 0, behavior: "smooth" });
+  setTimeout(() => { b.importing = false; if (st.tab === "library" && !st.book) renderLibrary(); toast(`已导入《${b.title}》`); }, reduced ? 0 : 1100);
+};
+
+/* ===================== 查单词 ===================== */
+function lookupHome() { return !st.query.trim() && !(st.screen === "inner" && st.pick); }
+// 空闲和输入两种状态之间，搜索框从原位置滑到新位置（FLIP），宽度在内屏也会变化
+function flipBox(before) {
+  const box = $("#v-physical .qbox"); if (!before || !box || reduced) return;
+  const after = box.getBoundingClientRect();
+  const dx = before.left - after.left, dy = before.top - after.top;
+  if (Math.abs(dx) + Math.abs(dy) < 1 && Math.abs(before.width - after.width) < 1) return;
+  box.animate([{ transform: `translate(${dx}px, ${dy}px)`, width: before.width + "px" }, { transform: "none", width: after.width + "px" }], { duration: 300, easing: "cubic-bezier(.2, .8, .2, 1)" });
+}
+function renderPhysical() {
+  const v = $("#v-physical");
+  const old = $(".qbox", v), before = old && !v.hidden ? old.getBoundingClientRect() : null, wasHome = v.classList.contains("home");
+  const hadFocus = document.activeElement?.id === "q";
+  const col = `
+    <label class="qbox">${I.search}<input id="q" type="search" enterkeyhint="search" placeholder="输入英文单词" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" value="${esc(st.query)}"><button class="clr" data-act="clear" aria-label="清除">${I.x}</button></label>
+    <div class="acts">
+      <button class="act" data-act="camera">${I.camera}<span>拍一页</span></button>
+      <button class="act" data-act="album">${I.photo}<span>从相册选</span></button>
+    </div>
+    ${recents.length ? `<div class="recent"><div class="rt">最近查过</div><div class="rchips">${recents.slice(0, 8).map(w => `<button data-word="${esc(w)}">${esc(w)}</button>`).join("")}</div></div>` : ""}
+    <ul class="list results" id="results"></ul>`;
+  v.innerHTML = `<button class="circle gear" data-act="settings" aria-label="设置">${I.gear}</button>` + (st.screen === "inner"
+    ? `<div class="split"><div class="col">${col}</div><div class="pane" id="ppane"></div></div>`
+    : `<div class="col">${col}</div>`);
+  if (st.screen === "inner") renderPane($("#ppane"), st.pick, "");
+  const home = lookupHome();
+  v.classList.toggle("home", home);
+  renderResults();
+  if (hadFocus) $("#q").focus({ preventScroll: true });
+  if (wasHome !== home) flipBox(before);
+}
+function renderResults() {
+  const r = $("#results"); if (!r) return;
+  const q = st.query.trim();
+  const row = (w, m, key = w) => `<li class="${st.pick === w ? "on" : ""}"><button data-word="${esc(key)}"><span class="lw">${esc(w)}</span><span class="lm">${esc(m)}</span></button></li>`;
+  if (!q) { r.innerHTML = recents.map(w => row(w, senseOf(w))).join(""); return; }
+  const hits = JSON.parse(N.prefix(q));
+  r.innerHTML = hits.length ? hits.map(h => row(h.w, h.m, h.q || h.w)).join("") : `<li class="empty">词典里没有 ${esc(q)}</li>`;
+}
+function setQuery(q) {
+  const v = $("#v-physical"), box = $(".qbox", v), before = box.getBoundingClientRect();
+  st.query = q;
+  const home = lookupHome();
+  if (v.classList.contains("home") !== home) { v.classList.toggle("home", home); flipBox(before); }
+  renderResults();
+}
+function clearQuery() { st.query = ""; st.pick = null; renderPhysical(); $("#q").focus({ preventScroll: true }); N.keyboard(true); }
+function pickWord(k) {
+  const i = recents.indexOf(k); if (i >= 0) recents.splice(i, 1);
+  recents.unshift(k); recents.length = Math.min(recents.length, 50); kv.set("recents", recents);
+  showWord(k, "查单词");
+}
+if (!CARD) {
+  const pv = $("#v-physical");
+  pv.addEventListener("input", e => { if (e.target.id === "q") setQuery(e.target.value); });
+  pv.addEventListener("keydown", e => {
+    if (e.target.id !== "q") return;
+    if (e.key === "Enter") { e.preventDefault(); const f = $("#results [data-word]"); if (f) { pickWord(f.dataset.word); if (st.screen === "outer") { e.target.blur(); N.keyboard(false); } } }
+  });
+  pv.addEventListener("click", e => {
+    const w = e.target.closest("[data-word]"); if (w) { pickWord(w.dataset.word); if (st.screen === "outer" && st.kb) N.keyboard(false); return; }
+    const a = e.target.closest("[data-act]"); if (!a) return;
+    if (a.dataset.act === "clear") { e.preventDefault(); clearQuery(); }
+    else if (a.dataset.act === "settings") openSettings();
+    else openCamera(a.dataset.act === "album");
+  });
+}
+
+/* ===================== 生词本 ===================== */
+function dayOf(t) {
+  const now = Date.now(); if (now - t < 10 * 60e3) return "刚刚";
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+  if (t >= d0.getTime()) return "今天";
+  if (t >= d0.getTime() - 86400e3) return "昨天";
+  return "更早";
+}
+function renderWords() {
+  const v = $("#v-words");
+  const items = [...saved].filter(([, m]) => st.words === "all" || m.type === st.words).sort((a, b) => b[1].t - a[1].t);
+  const groups = ["刚刚", "今天", "昨天", "更早"].map(d => [d, items.filter(([, m]) => dayOf(m.t) === d)]).filter(([, l]) => l.length);
+  const col = `
+    <div class="lg-head"><h2>生词本</h2><button class="txt-btn" data-act="export">导出</button></div>
+    <div class="chips">${[["all", "全部"], ["book", "书库"], ["physical", "查单词"]].map(([k, t]) => `<button data-wf="${k}" aria-pressed="${st.words === k}">${t}</button>`).join("")}</div>
+    ${groups.length ? groups.map(([d, l]) => `<div class="sec-s">${d}</div><ul class="list">${l.map(([w, m]) => `<li class="${st.pick === w ? "on" : ""}" data-li="${esc(w)}"><button data-word="${esc(w)}"><span class="lw">${esc(w)}</span><span class="ls">${esc(m.src)}</span><span class="lm">${esc(senseOf(w))}</span></button></li>`).join("")}</ul>`).join("")
+      : '<div class="empty">这里还没有词</div>'}`;
+  if (st.screen === "inner") {
+    v.innerHTML = `<div class="split"><div class="col">${col}</div><div class="pane" id="wpane"></div></div>`;
+    renderPane($("#wpane"), saved.has(st.pick) ? st.pick : null, saved.size ? `共 ${saved.size} 个生词` : "");
+  } else v.innerHTML = col;
+}
+function exportCsv() {
+  const q = s => `"${String(s ?? "").replace(/"/g, '""')}"`;
+  const rows = [["word", "lemma", "phonetic", "meaning", "context_sense", "sentence", "source", "added_at"].join(",")];
+  [...saved].sort((a, b) => a[1].t - b[1].t).forEach(([lemma, m]) => {
+    const info = lookupWord(lemma);
+    rows.push([m.word || lemma, lemma, info.phonetic, senseOf(lemma), m.sense, m.sentence, m.src, new Date(m.t).toISOString()].map(q).join(","));
+  });
+  const name = N.exportCsv(rows.join("\n") + "\n");
+  toast(name ? `已导出 ${saved.size} 个词到 下载/${name}` : "导出失败");
+}
+if (!CARD) {
+  const wv = $("#v-words");
+  let sw = null, swiped = false;
+  wv.addEventListener("pointerdown", e => { const li = e.target.closest("li[data-li]"); swiped = false; sw = li ? { li, x: e.clientX, y: e.clientY, dx: 0 } : null; });
+  wv.addEventListener("pointermove", e => {
+    if (!sw) return;
+    const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
+    if (!sw.on && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5 && dx < 0) { sw.on = true; sw.li.classList.add("swiping"); }
+    if (sw.on) { sw.dx = Math.min(0, dx); sw.li.firstElementChild.style.transform = `translateX(${sw.dx}px)`; }
+  });
+  const end = () => {
+    if (!sw || !sw.on) { sw = null; return; }
+    const { li, dx } = sw; sw = null; swiped = true;
+    li.classList.remove("swiping"); li.firstElementChild.style.transform = "";
+    if (dx < -90) {
+      const w = li.dataset.li; li.classList.add("del");
+      setTimeout(() => { saved.delete(w); saveSaved(); if (st.pick === w) st.pick = null; renderWords(); toast(`已删除 ${w}`); }, 240);
+    }
+  };
+  wv.addEventListener("pointerup", end); wv.addEventListener("pointercancel", end);
+  wv.addEventListener("click", e => {
+    if (swiped) { swiped = false; return; }
+    const f = e.target.closest("[data-wf]"); if (f) { st.words = f.dataset.wf; renderWords(); return; }
+    if (e.target.closest('[data-act="export"]')) { exportCsv(); return; }
+    const w = e.target.closest("[data-word]"); if (w) showWord(w.dataset.word, saved.get(w.dataset.word)?.src || "生词本");
+  });
+}
+
+/* ===================== 单词详情 ===================== */
+function wordHTML(info, opts) {
+  const { lemma, form, word } = info;
+  const isSaved = saved.has(lemma);
+  const ctx = opts.sentence && N.hasJev() && senseItems(info).length > 1;
+  const swap = opts.swap ? `<button class="txt-btn" data-swap style="font-size:14px">换边</button>` : "";
+  const head = `<div class="wd-h"><div class="grow"><div class="hw">${esc(lemma)}</div>
+      <div class="ph">${info.phonetic ? `<span>/${esc(info.phonetic)}/</span>` : ""}${N.canSpeak() ? `<button class="say" data-say="${esc(lemma)}" aria-label="朗读">${I.speak}</button>` : ""}${form ? `<span class="note">${esc(word)} 的${form}</span>` : ""}</div></div>
+      ${swap}${opts.close ? `<button class="x" data-close aria-label="关闭">${I.x}</button>` : ""}</div>`;
+  if (!info.found) return `<div class="wd">${head.replace(`<div class="hw">${esc(lemma)}</div>`, `<div class="hw">${esc(word || lemma)}</div>`)}
+    <p style="font-size:17px;margin:0;color:var(--muted)">词典里没有 ${esc(word || lemma)}</p>
+    ${N.hasTr() ? `<div class="trx" data-ai-out></div><div class="acts"><button class="pill primary" data-ask="${esc(word || lemma)}">问 AI</button></div>` : ""}</div>`;
+  return `<div class="wd">${head}
+    ${ctx ? `<div class="ctx loading"><span class="k">本句中</span><span class="v">…</span></div>` : ""}
+    <ol class="senses">${info.lines.map(([p, m], i) => `<li data-i="${i}"><span class="pos">${esc(p)}</span><span>${esc(m)}</span></li>`).join("")}</ol>
+    <div class="acts"><button class="pill ${isSaved ? "done" : "primary"}" data-save="${esc(lemma)}">${isSaved ? I.starOn + "已在生词本" : I.star + "加入生词本"}</button></div></div>`;
+}
+const ctxCache = new Map(kv.get("ctxcache", []));
+async function resolveCtx(root, info, sentence) {
+  const c = root.querySelector(".ctx"); if (!c) return null;
+  const items = senseItems(info), key = info.lemma + "|" + hash(sentence);
+  let choice = ctxCache.get(key);
+  if (!choice) {
+    try {
+      const a = await jevAsk(sentence, { ["sense_" + qid(info.lemma)]: senseQuestion(info.word, items) });
+      choice = a["sense_" + qid(info.lemma)]?.choice;
+    } catch (e) { choice = null; }
+    if (choice) { ctxCache.set(key, choice); kv.set("ctxcache", [...ctxCache].slice(-300)); }
+  }
+  if (!c.isConnected) return choice;
+  if (!choice) { c.remove(); return null; }
+  c.classList.remove("loading");
+  c.querySelector(".v").textContent = choice;
+  const idx = items.find(([s]) => s === choice)?.[1];
+  const li = root.querySelector(`.senses li[data-i="${idx}"]`);
+  if (li) { li.classList.add("cur"); li.insertAdjacentHTML("beforeend", '<span class="tag">本句</span>'); }
+  root.dataset.sense = choice;
+  return choice;
+}
+function renderPane(pane, word, emptyText) {
+  if (!word) { pane.innerHTML = `<div class="pane-empty">${esc(emptyText)}</div>`; return; }
+  pane.innerHTML = wordHTML(lookupWord(word), {});
+  pane.firstElementChild.style.animation = "fadeUp 300ms var(--ease)";
+}
+function showWord(word, src) {
+  const info = lookupWord(word);
+  st.pick = info.lemma; st.pickSrc = src;
+  if (st.screen === "inner") { render(st.tab); return; }
+  openSheet(`<div class="sh-body">${wordHTML(info, { close: true })}</div>`, "lk-card", () => { st.pick = null; });
+}
+function toggleSave(lemma, src, btn, extra = {}) {
+  if (saved.has(lemma)) saved.delete(lemma);
+  else {
+    saved.set(lemma, Object.assign({ src, type: extra.book ? "book" : "physical", t: Date.now() }, extra));
+    toast("已加入生词本");
+  }
+  saveSaved();
+  if (btn) { const on = saved.has(lemma); btn.className = "pill " + (on ? "done" : "primary"); btn.innerHTML = on ? I.starOn + "已在生词本" : I.star + "加入生词本"; }
+  markSaved();
+  if (!st.book && st.tab === "words" && st.screen === "outer" && !CARD) renderWords();
+}
+scr.addEventListener("click", e => {
+  const s = e.target.closest("[data-say]"); if (s) { speak(s.dataset.say); return; }
+  const ask = e.target.closest("[data-ask]");
+  if (ask) { const out = ask.closest(".wd").querySelector("[data-ai-out]"); ask.closest(".acts").remove(); streamTr(ask.dataset.ask + (st.lkSentence ? "\n句子：" + st.lkSentence : ""), true, out); return; }
+  const v = e.target.closest("[data-save]");
+  if (v) {
+    const lk = v.closest(".lk");
+    if (st.book && lk) {
+      toggleSave(v.dataset.save, st.book.title, v, { book: st.book.id, pos: R ? { ch: R.ch, off: R.lkOff ?? anchorOffset() } : null,
+        sentence: st.lkSentence || "", sense: lk.querySelector(".wd")?.dataset.sense || "", word: st.lkWord || v.dataset.save });
+    } else toggleSave(v.dataset.save, st.book ? st.book.title : (st.pickSrc || "查单词"), v, { word: v.dataset.save });
+  }
+});
+
+/* ===================== 阅读器 ===================== */
+let R = null;
+const chCache = new Map();
+const bookUrl = (id, path) => `/book/${id}/${path.split("/").map(encodeURIComponent).join("/")}`;
+// 出版社样式整体丢弃，只保留图片的百分比宽度（如章首小花饰），否则小图会被拉满整栏
+const cssCache = new Map();
+async function keepImageWidths(doc, body, base) {
+  const sheets = await Promise.all($$('link[rel~="stylesheet"][href]', doc).map(l => {
+    const href = new URL(l.getAttribute("href"), base).href;
+    if (!cssCache.has(href)) cssCache.set(href, fetch(href).then(r => r.text()).then(t => { const c = new CSSStyleSheet(); c.replaceSync(t); return c; }).catch(() => null));
+    return cssCache.get(href);
+  }));
+  $$("style", doc).forEach(s => { const c = new CSSStyleSheet(); c.replaceSync(s.textContent); sheets.push(c); });
+  const pct = (v) => /^[\d.]+%$/.test(v) ? parseFloat(v) : null;
+  const widthOf = (st) => {
+    const w = pct(st.width) ?? pct(st.maxWidth);
+    if (w != null) return w;
+    const l = pct(st.marginLeft), r = pct(st.marginRight);
+    return l != null && r != null ? 100 - l - r : null;
+  };
+  const set = (n, w) => {
+    if (w == null || w <= 0 || w >= 100) return;
+    const imgs = n.localName === "img" ? [n] : !n.textContent.trim() ? $$("img", n) : [];
+    imgs.forEach(img => img.dataset.w = w);
+  };
+  for (const c of sheets) for (const r of c?.cssRules || []) {
+    if (!r.selectorText || !r.style) continue;
+    const w = widthOf(r.style);
+    if (w != null) try { $$(r.selectorText, body).forEach(n => set(n, w)); } catch {}
+  }
+  $$("[style]", body).forEach(n => set(n, widthOf(n.style)));
+  $$("img[data-w]", body).forEach(img => img.setAttribute("style", `max-width:${img.dataset.w}%`));
+}
+async function chapterHTML(i) {
+  const id = st.book.id, key = id + ":" + i;
+  if (chCache.has(key)) return chCache.get(key);
+  const p = (async () => {
+    const url = bookUrl(id, st.book.spine[i]);
+    const txt = await (await fetch(url)).text();
+    let doc = new DOMParser().parseFromString(txt, "application/xhtml+xml");
+    if (doc.querySelector("parsererror") || !doc.body) doc = new DOMParser().parseFromString(txt, "text/html");
+    const body = doc.body || doc.documentElement;
+    const base = new URL(url, location.href);
+    await keepImageWidths(doc, body, base);
+    $$("script, style, link, meta, title, iframe, object, embed", body).forEach(n => n.remove());
+    $$("[src]", body).forEach(n => n.setAttribute("src", new URL(n.getAttribute("src"), base).href));
+    $$("image", body).forEach(n => {
+      const h = n.getAttribute("xlink:href") || n.getAttribute("href");
+      if (h) { const abs = new URL(h, base).href; n.setAttribute("href", abs); n.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", abs); }
+    });
+    $$("[style]", body).forEach(n => { if (!n.dataset.w) n.removeAttribute("style"); });
+    $$("a[href]", body).forEach(n => n.removeAttribute("href"));
+    // 一个文件里有多章时，前面已有正文的章节标题另起一页
+    let count = 0;
+    const tw = doc.createTreeWalker(body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    for (let n; (n = tw.nextNode());) {
+      if (n.nodeType === 3) count += n.nodeValue.trim().length;
+      else if (/^h[12]$/i.test(n.localName)) { if (count > 150) n.classList.add("brk"); count = -1e9; }
+      else if (count < 0 && n.localName === "p") count = 0;
+    }
+    return body.innerHTML;
+  })();
+  chCache.set(key, p);
+  return p;
+}
+// 一个 spine 文件里可能有好几章：按目录锚点所在的页确定当前章节
+function tocPage(e) {
+  if (R && e.ch === R.ch) return R.marks?.get(e.frag) ?? 0;
+  return R?.fragPages?.[e.ch]?.[e.frag] ?? 0;
+}
+function tocIndexAt(ch, page) {
+  let idx = -1;
+  (st.book.toc || []).forEach((e, i) => { if (e.ch < ch || (e.ch === ch && tocPage(e) <= page)) idx = i; });
+  return idx;
+}
+function chapterTitle(ch, page = 1e9) {
+  const i = tocIndexAt(ch, page);
+  return i >= 0 ? st.book.toc[i].t : st.book.title;
+}
+function fragPagesOf(flow, ch) {
+  const out = {};
+  for (const e of st.book.toc || []) {
+    if (e.ch !== ch || !e.frag) continue;
+    const t = flow.querySelector("#" + CSS.escape(e.frag));
+    if (t) { const fr = flow.getBoundingClientRect(), r = t.getBoundingClientRect(); out[e.frag] = Math.max(0, Math.floor((r.left - fr.left + 2) / R.step)); }
+  }
+  return out;
+}
+async function openBook(id, coverEl) {
+  const b = BOOKS.find(x => x.id === id); if (!b || st.busy) return;
+  const t0 = performance.now();
+  st.book = b;
+  const pr = progOf(id); pr.opened = Date.now(); if (pr.status !== "done") pr.status = "reading"; saveProg();
+  const r = el("div", "reader"); r.dataset.theme = st.theme; r.dataset.font = st.font; r.style.setProperty("--r-size", st.size + "px");
+  r.innerHTML = `
+    <div class="rd-clip"><div class="rd-flow" lang="${esc(b.lang || "en")}"></div></div>
+    <div class="rd-clip measure"><div class="rd-flow" lang="${esc(b.lang || "en")}"></div></div>
+    <div class="rd-spine"></div><div class="ribbon"></div>
+    <div class="rd-run head L"></div><div class="rd-run head R"></div><div class="rd-run foot L"></div><div class="rd-run foot R"></div>
+    <div class="rd-turn"></div>
+    <div class="rd-ui rd-topbar"><button class="rbtn" data-r="close" aria-label="关闭图书">${I.x}</button><button class="rbtn" data-r="bm" aria-label="书签">${I.bm}</button></div>
+    <div class="rd-ui rd-botbar"><span style="width:40px"></span><span class="rd-pos"></span><button class="rbtn" data-r="menu" aria-label="菜单">${I.menu}</button></div>
+    <div class="rmenu">
+      <button data-r="toc"><span>目录</span><span class="sub" id="rm-pos"></span>${I.list}</button>
+      <button data-r="find"><span>查单词</span>${I.search}</button>
+      <button data-r="themes"><span>主题与设置</span>${I.aa}</button>
+      <button data-r="bookwords"><span>本书生词</span><span class="sub" id="rm-count"></span>${I.star}</button>
+    </div>
+    <div class="lk" role="dialog"></div>`;
+  if (st.kb) N.keyboard(false);
+  document.activeElement?.blur?.();
+  scr.appendChild(r); scr.classList.add("reading");
+  N.reading(true); N.bars(false, true);
+  const clips = $$(".rd-clip", r);
+  R = { r, clip: clips[0], flow: $(".rd-flow", clips[0]), mclip: clips[1], mflow: $(".rd-flow", clips[1]), turn: $(".rd-turn", r), lk: $(".lk", r), menu: $(".rmenu", r),
+    ch: 0, page: 0, pages: 1, counts: null, tnDirty: true };
+  bindReader();
+  if (coverEl && !reduced) zoomFromCover(coverEl, r);
+  else r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: "ease-out" });
+  await document.fonts.ready;
+  await loadChapter(Math.min(pr.ch || 0, b.spine.length - 1), { off: pr.off || 0 });
+  N.perf("open_book", Math.round(performance.now() - t0));
+  setTimeout(measureAll, 400);
+}
+function rectIn(elm) { const a = elm.getBoundingClientRect(), s = scr.getBoundingClientRect(); return { x: a.left - s.left, y: a.top - s.top, w: a.width, h: a.height }; }
+function zoomFromCover(coverEl, r) {
+  const c = rectIn(coverEl), [W, H] = dims();
+  const ghost = coverEl.cloneNode(true); ghost.style.cssText += `;position:absolute;z-index:55;left:0;top:0;width:${c.w}px;height:${c.h}px;transform-origin:0 0;margin:0`;
+  scr.appendChild(ghost);
+  r.style.opacity = "0"; st.busy = true;
+  ghost.animate([{ transform: `translate(${c.x}px,${c.y}px) scale(1)` }, { transform: `translate(0,0) scale(${W / c.w},${H / c.h})` }], { duration: 540, easing: "cubic-bezier(.3,.7,.1,1)", fill: "forwards" });
+  r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, delay: 320, easing: "ease-out", fill: "forwards" }).finished.then(() => { r.style.opacity = ""; r.getAnimations().forEach(a => a.cancel()); ghost.remove(); st.busy = false; });
+}
+function closeBook() {
+  if (!R || st.busy) return;
+  const b = st.book; savePos(true);
+  const r = R.r; st.busy = true;
+  hideLookup(); R.menu.classList.remove("on"); r.classList.remove("ui");
+  scr.classList.remove("reading", "ui");
+  N.reading(false); N.bars(true, !darkUI());
+  if (st.tab !== "library") setTab("library", false); else renderLibrary();
+  const target = $(`#v-library [data-open="${b.id}"] .cover`);
+  const done = () => { r.remove(); R = null; st.book = null; st.busy = false; };
+  if (!target || reduced) { r.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: "ease-out", fill: "forwards" }).finished.then(done); return; }
+  const c = rectIn(target), [W, H] = dims();
+  const ghost = target.cloneNode(true); ghost.style.cssText += `;position:absolute;z-index:55;left:0;top:0;width:${c.w}px;height:${c.h}px;transform-origin:0 0`;
+  scr.appendChild(ghost);
+  r.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: "ease-out", fill: "forwards" });
+  ghost.animate([{ transform: `translate(0,0) scale(${W / c.w},${H / c.h})`, opacity: 0 }, { opacity: 1, offset: .25 }, { transform: `translate(${c.x}px,${c.y}px) scale(1)`, opacity: 1 }], { duration: 480, easing: "cubic-bezier(.3,.7,.1,1)", fill: "forwards" })
+    .finished.then(() => { ghost.remove(); done(); });
+}
+
+/* ---------- 分页 ---------- */
+function geometry() {
+  const [W, H] = dims();
+  const spread = st.screen === "inner" && st.spread;
+  const g = spread ? { top: 58, bottom: 52, side: 60, gap: 84 } : { top: 60, bottom: 52, side: 30, gap: 60 };
+  const headY = Math.max(24, sat() - 4);
+  g.top = Math.max(g.top, headY + 34);
+  return { W, H, spread, g, headY };
+}
+function layout(anchor, opts = {}) {
+  const { W, H, spread, g, headY } = geometry();
+  const clipW = W - g.side * 2, clipH = H - g.top - g.bottom;
+  const pageW = spread ? (clipW - g.gap) / 2 : clipW;
+  Object.assign(R, { W, H, spread, clipL: g.side, clipT: g.top, clipW, clipH, pageW, gap: g.gap, step: pageW + g.gap, headY });
+  R.r.style.setProperty("--clip-h", clipH * 0.9 + "px");
+  for (const [clip, flow] of [[R.clip, R.flow], [R.mclip, R.mflow]]) {
+    Object.assign(clip.style, { left: g.side + "px", top: g.top + "px", width: clipW + "px", height: clipH + "px" });
+    Object.assign(flow.style, { width: clipW + "px", columnCount: spread ? 2 : 1, columnGap: g.gap + "px", transform: "translateX(0)" });
+  }
+  $(".rd-spine", R.r).style.display = spread ? "" : "none";
+  const runs = { "head.L": [g.side, headY], "head.R": [g.side + pageW + g.gap, headY], "foot.L": [g.side, H - 34], "foot.R": [g.side + pageW + g.gap, H - 34] };
+  Object.entries(runs).forEach(([k, [x, y]]) => {
+    const e = $(".rd-run." + k, R.r);
+    Object.assign(e.style, { left: x + "px", top: y + "px", width: (spread ? pageW : clipW) + "px", display: !spread && k.endsWith("R") ? "none" : "" });
+  });
+  $(".ribbon", R.r).style.left = (W - g.side - 26) + "px";
+  R.tnDirty = true;
+  R.pages = pageOf($(".end", R.flow)) + 1;
+  if (spread && R.pages % 2) R.pages += 1;
+  R.marks = new Map(Object.entries(fragPagesOf(R.flow, R.ch)));
+  let p = 0;
+  if (opts.last) p = R.pages - 1;
+  else if (opts.frag) { const t = R.flow.querySelector("#" + CSS.escape(opts.frag)); p = t ? pageOf(t) : 0; }
+  else if (opts.page != null) p = opts.page;
+  else if (anchor != null) p = pageForOffset(anchor);
+  setPage(Math.max(0, Math.min(p, R.pages - 1)));
+}
+function relayout() { if (!R) return; const a = anchorOffset(); layout(a); }
+async function loadChapter(ch, opts = {}) {
+  const html = await chapterHTML(ch);
+  if (!R) return;
+  R.flow.innerHTML = `<section class="ch">${html}</section><span class="end"></span>`;
+  R.ch = ch; R.tnDirty = true;
+  markSaved();
+  layout(opts.off ?? null, opts);
+  // 图片加载完成后版面会变，按当前位置重新分页
+  $$("img, image", R.flow).forEach(img => { if (img.tagName === "IMG" && img.complete) return; img.addEventListener("load", relayoutSoon, { once: true }); });
+  [ch + 1, ch - 1].forEach(i => { if (i >= 0 && i < st.book.spine.length) chapterHTML(i); });
+}
+let relayoutT;
+function relayoutSoon() { clearTimeout(relayoutT); relayoutT = setTimeout(() => { if (!R) return; if (st.busy || R.lk.classList.contains("on")) relayoutSoon(); else relayout(); }, 120); }
+function pageOf(e) {
+  const fr = R.flow.getBoundingClientRect(), r = e.getBoundingClientRect();
+  return Math.max(0, Math.floor((r.left - fr.left + 2) / R.step));
+}
+
+// 位置按（章节，章内字符偏移）保存：用文本节点和 Range 的位置算出字符所在的页
+function tindex() {
+  if (!R.tnDirty) return R.tn;
+  const tn = []; let acc = 0;
+  const w = document.createTreeWalker(R.flow, NodeFilter.SHOW_TEXT);
+  for (let n; (n = w.nextNode());) { const L = n.nodeValue.length; if (n.nodeValue.trim()) tn.push([n, acc]); acc += L; }
+  R.tn = tn; R.tnDirty = false;
+  return tn;
+}
+function rectAt(n, i) {
+  const t = n.nodeValue;
+  while (i < t.length - 1 && /\s/.test(t[i])) i++;
+  const r = document.createRange(); r.setStart(n, i); r.setEnd(n, Math.min(i + 1, t.length));
+  return r.getClientRects()[0] || r.getBoundingClientRect();
+}
+function pageAtRect(rc) { const fr = R.flow.getBoundingClientRect(); return Math.max(0, Math.floor((rc.left - fr.left + 2) / R.step)); }
+function anchorOffset() {
+  if (!R) return 0;
+  const tn = tindex(); if (!tn.length) return 0;
+  let lo = 0, hi = tn.length - 1, ans = tn.length;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (pageAtRect(rectAt(tn[m][0], 0)) >= R.page) { ans = m; hi = m - 1; } else lo = m + 1; }
+  const prev = tn[ans - 1];
+  if (prev) {
+    const [n, acc] = prev, L = n.nodeValue.length;
+    if (pageAtRect(rectAt(n, L - 1)) >= R.page) {
+      let a = 0, b = L - 1;
+      while (a < b) { const m = (a + b) >> 1; if (pageAtRect(rectAt(n, m)) >= R.page) b = m; else a = m + 1; }
+      return acc + a;
+    }
+  }
+  return ans >= tn.length ? tn[tn.length - 1][1] : tn[ans][1];
+}
+function pageForOffset(off) {
+  const tn = tindex(); if (!tn.length) return 0;
+  let lo = 0, hi = tn.length - 1, ans = 0;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (tn[m][1] <= off) { ans = m; lo = m + 1; } else hi = m - 1; }
+  const [n, acc] = tn[ans];
+  return pageAtRect(rectAt(n, Math.max(0, Math.min(n.nodeValue.length - 1, off - acc))));
+}
+
+/* ---------- 全书页码：后台逐章分页，结果按书、字号、字体、屏幕缓存 ---------- */
+const measureKey = () => [st.size, st.font, st.theme === "bold", R.W, R.H, R.spread].join("|");
+async function measureAll() {
+  if (!R) return;
+  const key = measureKey(), cached = kv.get("pages:" + st.book.id, null);
+  if (cached && cached.fragPages && cached.key === key && cached.counts.length === st.book.spine.length) { R.counts = cached.counts; R.fragPages = cached.fragPages; setPage(R.page); return; }
+  const token = R.measureToken = {}, counts = [], fragPages = [], book = st.book;
+  for (let i = 0; i < book.spine.length; i++) {
+    if (!R || st.book !== book || R.measureToken !== token) return;
+    const html = await chapterHTML(i);
+    if (!R || R.measureToken !== token) return;
+    R.mflow.innerHTML = `<section class="ch">${html}</section><span class="end"></span>`;
+    const fr = R.mflow.getBoundingClientRect(), er = $(".end", R.mflow).getBoundingClientRect();
+    let n = Math.max(0, Math.floor((er.left - fr.left + 2) / R.step)) + 1;
+    if (R.spread && n % 2) n++;
+    counts.push(n); fragPages.push(fragPagesOf(R.mflow, i));
+    if (i % 4 === 3) await wait(0);
+  }
+  R.mflow.innerHTML = "";
+  R.counts = counts; R.fragPages = fragPages;
+  kv.set("pages:" + book.id, { key, counts, fragPages });
+  if (!st.busy) setPage(R.page);
+}
+function invalidatePages() { if (!R) return; R.counts = null; R.measureToken = null; setTimeout(measureAll, 300); }
+function globalStart(ch) { let s = 0; for (let i = 0; i < ch; i++) s += R.counts[i]; return s; }
+function totalPages() { return R.counts.reduce((a, b) => a + b, 0) - R.counts[R.ch] + R.pages; }
+
+function runText(p, side) {
+  if (p < 0 || p >= R.pages) return { head: "", foot: "" };
+  return {
+    head: p === 0 || [...R.marks.values()].includes(p) ? "" : (R.spread && side === "L" ? st.book.title : chapterTitle(R.ch, p)),
+    foot: R.counts ? String(globalStart(R.ch) + p + 1) : ""
+  };
+}
+function setPage(p) {
+  R.page = R.spread ? p - (p % 2) : p;
+  R.flow.style.transform = `translateX(${-R.page * R.step}px)`;
+  R.marks = new Map(Object.entries(fragPagesOf(R.flow, R.ch)));
+  const L = runText(R.page, "L"), Rr = runText(R.page + 1, "R");
+  $(".rd-run.head.L", R.r).textContent = L.head; $(".rd-run.foot.L", R.r).textContent = L.foot;
+  $(".rd-run.head.R", R.r).textContent = R.spread ? Rr.head : ""; $(".rd-run.foot.R", R.r).textContent = R.spread ? Rr.foot : "";
+  const span = R.spread ? 2 : 1, lastInCh = Math.min(R.pages, R.page + span);
+  let pos;
+  if (R.counts) {
+    const g = globalStart(R.ch) + R.page, total = totalPages(), last = Math.min(total, g + span), left = total - last;
+    pos = `${R.spread ? `${g + 1}–${last}` : g + 1} / ${total}${left ? `，本书还剩 ${left} 页` : ""}`;
+  } else pos = R.pages - lastInCh ? `本章还剩 ${R.pages - lastInCh} 页` : "本章最后一页";
+  $(".rd-pos", R.r).textContent = pos;
+  const marked = (bookmarks[st.book.id] || []).some(m => m.ch === R.ch && Math.abs(pageForOffset(m.off) - R.page) < span);
+  R.r.classList.toggle("bm", marked);
+  $('[data-r="bm"]', R.r).innerHTML = marked ? I.bmOn : I.bm;
+  savePos();
+}
+let saveT;
+function savePos(now) {
+  clearTimeout(saveT);
+  const f = () => {
+    if (!R) return;
+    const pr = progOf(st.book.id);
+    pr.ch = R.ch; pr.off = anchorOffset();
+    pr.progress = R.counts ? Math.min(1, (globalStart(R.ch) + R.page + (R.spread ? 2 : 1)) / totalPages())
+      : Math.min(1, (R.ch + (R.page + 1) / R.pages) / st.book.spine.length);
+    saveProg();
+  };
+  if (now) f(); else saveT = setTimeout(f, 400);
+}
+
+/* ---------- 翻页 ---------- */
+function sheetFor(p, side) {
+  const s = el("div", "rd-sheet" + (R.spread ? " " + side : ""));
+  s.style.width = (R.spread ? R.W / 2 : R.W) + "px";
+  if (p < 0 || p >= R.pages) return s;
+  const x = side === "R" ? R.clipL + R.pageW + R.gap - R.W / 2 : R.clipL;
+  const clip = el("div", "clip"); Object.assign(clip.style, { left: x + "px", top: R.clipT + "px", width: R.pageW + "px", height: R.clipH + "px" });
+  const f = R.flow.cloneNode(true); f.style.transform = `translateX(${-p * R.step}px)`;
+  clip.appendChild(f); s.appendChild(clip);
+  const t = runText(p, side);
+  [[t.head, R.headY], [t.foot, R.H - 34]].forEach(([txt, y]) => { const e = el("div", "rd-run"); e.textContent = txt; Object.assign(e.style, { left: x + "px", top: y + "px", width: R.pageW + "px" }); s.append(e); });
+  return s;
+}
+function viewFor(p) {
+  const v = el("div"); v.style.cssText = `position:absolute;top:0;left:0;width:${R.W}px;height:100%`;
+  if (R.spread) { const l = sheetFor(p, "L"), r = sheetFor(p + 1, "R"); l.style.left = "0px"; r.style.left = R.W / 2 + "px"; v.append(l, r); }
+  else { const s = sheetFor(p, "S"); s.style.left = "0px"; v.append(s); }
+  return v;
+}
+const animOff = () => reduced || N.animScale?.() === 0;
+async function turn(dir) {
+  if (!R || st.busy) return;
+  const stepN = R.spread ? 2 : 1, to = R.page + dir * stepN;
+  const sameCh = to >= 0 && to < R.pages;
+  if (!sameCh && (R.ch + dir < 0 || R.ch + dir >= st.book.spine.length)) {
+    R.flow.animate([{ translate: "0" }, { translate: `${-dir * 14}px` }, { translate: "0" }], { duration: 320, easing: "ease-out" }); return;
+  }
+  hideLookup(); R.r.classList.remove("ui"); scr.classList.remove("ui"); R.menu.classList.remove("on"); N.bars(false, true);
+  const go = async () => { if (sameCh) setPage(to); else await loadChapter(R.ch + dir, dir > 0 ? { page: 0 } : { last: true }); };
+  const mode = animOff() ? "none" : st.turn;
+  st.busy = true;
+  const layer = R.turn; layer.innerHTML = "";
+  try {
+    if (mode === "none") await go();
+    else if (mode === "fade") {
+      const v = viewFor(R.page); layer.append(v); await go();
+      await v.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 320, easing: "ease-out", fill: "forwards" }).finished;
+    } else if (mode === "slide") {
+      const strip = el("div"); strip.style.cssText = "position:absolute;inset:0";
+      strip.append(viewFor(R.page)); layer.append(strip);
+      await go();
+      const b = viewFor(R.page); b.style.left = dir * R.W + "px"; strip.append(b);
+      await strip.animate([{ transform: "translateX(0)" }, { transform: `translateX(${-dir * R.W}px)` }], { duration: 420, easing: "cubic-bezier(.22,.8,.2,1)", fill: "forwards" }).finished;
+    } else await curl(dir, go);
+  } finally { layer.innerHTML = ""; st.busy = false; }
+}
+async function curl(dir, go) {
+  const layer = R.turn, D = 720, ease = "cubic-bezier(.42,.05,.2,1)";
+  const flip = el("div", "rd-flip"), from = R.page;
+  const coverV = viewFor(from); layer.append(coverV); // 换章时新内容加载期间先盖住旧页
+  let front, back, under, hingeLeft, keys, castOn;
+  if (R.spread) {
+    const half = R.W / 2; flip.style.width = half + "px";
+    if (dir > 0) {
+      const fromL = sheetFor(from, "L"); front = sheetFor(from + 1, "R");
+      await go(); const to = R.page;
+      under = [[fromL, 0], [sheetFor(to + 1, "R"), half]]; back = sheetFor(to, "L"); flip.style.left = half + "px"; hingeLeft = true; keys = [0, -180]; castOn = under[1][0];
+    } else {
+      front = sheetFor(from, "L"); const fromR = sheetFor(from + 1, "R");
+      await go(); const to = R.page;
+      under = [[sheetFor(to, "L"), 0], [fromR, half]]; back = sheetFor(to + 1, "R"); flip.style.left = "0px"; hingeLeft = false; keys = [0, 180]; castOn = under[0][0];
+    }
+  } else {
+    flip.style.left = "0px"; flip.style.width = R.W + "px"; hingeLeft = true; back = sheetFor(-1, "S");
+    if (dir > 0) { front = sheetFor(from, "S"); await go(); under = [[sheetFor(R.page, "S"), 0]]; keys = [0, -180]; }
+    else { const cur = sheetFor(from, "S"); await go(); under = [[cur, 0]]; front = sheetFor(R.page, "S"); keys = [-180, 0]; }
+    castOn = under[0][0];
+  }
+  flip.style.transformOrigin = hingeLeft ? "left center" : "right center";
+  under.forEach(([s, x]) => { s.style.left = x + "px"; layer.append(s); });
+  back.classList.add("back"); flip.append(front, back); layer.append(flip);
+  coverV.remove();
+  const opening = keys[0] === 0;
+  const shade = (sheetEl, deg, frames) => { const s = el("div", "shade"); s.style.background = `linear-gradient(${deg}deg, var(--r-shade), transparent 80%)`; sheetEl.append(s); s.animate(frames, { duration: D, easing: ease, fill: "forwards" }); };
+  shade(front, hingeLeft ? 90 : 270, opening ? [{ opacity: 0 }, { opacity: 1, offset: .5 }, { opacity: 1 }] : [{ opacity: 1 }, { opacity: 1, offset: .5 }, { opacity: 0 }]);
+  shade(back, hingeLeft ? 270 : 90, [{ opacity: 1 }, { opacity: 1, offset: .5 }, { opacity: 0 }]);
+  shade(castOn, hingeLeft ? 90 : 270, opening ? [{ opacity: .9 }, { opacity: 0 }] : [{ opacity: 0 }, { opacity: .8, offset: .6 }, { opacity: 0 }]);
+  await flip.animate([{ transform: `rotateY(${keys[0]}deg)` }, { transform: `rotateY(${keys[1]}deg)` }], { duration: D, easing: ease, fill: "forwards" }).finished;
+}
+handlers.volume = d => { if (R && !sheet.classList.contains("on")) turn(+d); };
+
+/* ---------- 阅读器手势 ---------- */
+function wordAt(x, y) {
+  const r = document.caretRangeFromPoint(x, y); if (!r) return null;
+  const n = r.startContainer; if (n.nodeType !== 3 || !R.flow.contains(n)) return null;
+  const t = n.nodeValue, isL = c => /[A-Za-z]/.test(c), isW = c => /[A-Za-z’'\-]/.test(c);
+  let i = r.startOffset;
+  if (i >= t.length || !isL(t[i])) { if (i > 0 && isL(t[i - 1])) i--; else return null; }
+  let a = i, b = i;
+  while (a > 0 && isW(t[a - 1])) a--;
+  while (b < t.length && isW(t[b])) b++;
+  while (a < b && !isL(t[a])) a++;
+  while (b > a && !isL(t[b - 1])) b--;
+  if (a >= b) return null;
+  const range = document.createRange(); range.setStart(n, a); range.setEnd(n, b);
+  const rc = range.getBoundingClientRect();
+  if (x < rc.left - 8 || x > rc.right + 8 || y < rc.top - 8 || y > rc.bottom + 8) return null;
+  return { node: n, a, b, range };
+}
+function wrapWord(w) {
+  const p = w.node.parentElement;
+  if (p.classList.contains("w") && w.a === 0 && w.b === w.node.nodeValue.length) return p;
+  const s = document.createElement("span"); s.className = "w tmp";
+  w.range.surroundContents(s); R.tnDirty = true;
+  return s;
+}
+function unwrap(s) {
+  if (!s || !s.classList.contains("tmp") || !s.parentNode) return;
+  const p = s.parentNode;
+  while (s.firstChild) p.insertBefore(s.firstChild, s);
+  s.remove(); p.normalize(); R.tnDirty = true;
+}
+function sentenceOf(span) {
+  const block = span.closest("p, li, blockquote, td, h1, h2, h3, h4, div, section") || R.flow;
+  const pre = document.createRange(); pre.setStart(block, 0); pre.setEndBefore(span);
+  const text = block.textContent, off = pre.toString().length;
+  let a = off, b = off + span.textContent.length;
+  while (a > 0 && !/[.?!]/.test(text[a - 1])) a--;
+  while (b < text.length && !/[.?!]/.test(text[b])) b++;
+  let s = text.slice(a, Math.min(text.length, b + 1)).replace(/\s+/g, " ").trim();
+  if (s.length > 400) { const c = off - a; s = s.slice(Math.max(0, c - 200), c + 200); }
+  return s;
+}
+function bindReader() {
+  const r = R.r; let down = null, timer = null, pressT = null, tapT = null, lastTap = null;
+  r.addEventListener("contextmenu", e => e.preventDefault());
+  r.addEventListener("pointerdown", e => {
+    if (e.target.closest(".rd-ui, .rmenu, .lk, button")) return;
+    const near = lastTap && Date.now() - lastTap.t < 300 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30;
+    clearTimeout(tapT); tapT = null;
+    const w = st.busy ? null : wordAt(e.clientX, e.clientY);
+    down = { x: e.clientX, y: e.clientY, long: false, dbl: near && !!w, w, span: null };
+    if (down.dbl) { lastTap = null; lookupInBook(wrapWord(w)); return; }
+    if (w) {
+      pressT = setTimeout(() => { down.span = wrapWord(w); down.span.classList.add("press"); }, 130);
+      timer = setTimeout(() => { if (!down) return; down.long = true; const s = down.span || wrapWord(w); s.classList.remove("press"); lookupInBook(s); }, 420);
+    }
+  });
+  const cancel = () => {
+    clearTimeout(timer); clearTimeout(pressT);
+    if (down?.span && !down.long) { down.span.classList.remove("press"); if (!down.span.classList.contains("hl")) unwrap(down.span); }
+  };
+  r.addEventListener("pointermove", e => { if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) cancel(); });
+  r.addEventListener("pointerup", e => {
+    cancel(); if (!down) return; const d = down; down = null;
+    if (d.long || d.dbl) return;
+    const dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { turn(dx < 0 ? 1 : -1); return; }
+    const x = e.clientX - r.getBoundingClientRect().left;
+    const act = () => {
+      if (R.lk.classList.contains("on")) { hideLookup(); return; }
+      if (R.menu.classList.contains("on")) { R.menu.classList.remove("on"); return; }
+      if (x < R.W * 0.28) turn(-1);
+      else if (x > R.W * 0.72) turn(1);
+      else { const on = !r.classList.contains("ui"); r.classList.toggle("ui", on); scr.classList.toggle("ui", on); N.bars(on, !["quiet", "focus"].includes(st.theme)); }
+    };
+    lastTap = { t: Date.now(), x: e.clientX, y: e.clientY };
+    // 点在中间的单词上时稍等，留给双击查词
+    if (d.w && x >= R.W * 0.28 && x <= R.W * 0.72 && !R.lk.classList.contains("on")) tapT = setTimeout(() => { tapT = null; act(); }, 260); else act();
+  });
+  r.addEventListener("pointercancel", () => { cancel(); down = null; });
+  r.addEventListener("click", e => {
+    const b = e.target.closest("[data-r]"); if (!b) return;
+    const a = b.dataset.r;
+    if (a === "close") closeBook();
+    else if (a === "menu") {
+      $("#rm-pos").textContent = R.counts ? `${globalStart(R.ch) + R.page + 1} / ${totalPages()}` : "";
+      $("#rm-count").textContent = bookWords().length || "";
+      R.menu.classList.toggle("on");
+    }
+    else if (a === "bm") toggleBookmark();
+    else { R.menu.classList.remove("on"); ({ toc: openToc, find: openFind, themes: openThemes, bookwords: openBookWords })[a](); }
+  });
+  R.lk.addEventListener("click", e => { if (e.target.closest("[data-close]")) hideLookup(); });
+}
+function toggleBookmark() {
+  const list = bookmarks[st.book.id] || (bookmarks[st.book.id] = []), span = R.spread ? 2 : 1;
+  const i = list.findIndex(m => m.ch === R.ch && Math.abs(pageForOffset(m.off) - R.page) < span);
+  if (i >= 0) list.splice(i, 1); else list.push({ ch: R.ch, off: anchorOffset(), t: Date.now() });
+  kv.set("bookmarks", bookmarks);
+  setPage(R.page);
+  toast(i >= 0 ? "已移除书签" : "已添加书签");
+}
+
+/* ---------- 阅读中查词 ---------- */
+function lookupInBook(span) {
+  $$(".w.hl", R.flow).forEach(s => { if (s !== span) { s.classList.remove("hl"); unwrap(s); } });
+  span.classList.add("hl");
+  const info = lookupWord(span.textContent), lk = R.lk, sentence = sentenceOf(span);
+  st.lkSentence = sentence; st.lkWord = span.textContent;
+  const tn = tindex(); const n = span.firstChild;
+  const hit = tn.find(([node]) => node === n); R.lkOff = hit ? hit[1] : null;
+  lk.classList.remove("on");
+  lk.innerHTML = '<div class="grab"></div>' + wordHTML(info, { sentence, close: true });
+  const sr = rectIn(span);
+  const atTop = st.screen === "outer" && sr.y > R.H * 0.48;
+  lk.style.transition = "none"; lk.classList.toggle("top", atTop); void lk.offsetWidth; lk.style.transition = "";
+  // 卡片不能挡住被查的词：高度限制在词上方或下方的空间里，超出时在卡片内滚动
+  lk.style.maxHeight = st.screen === "outer" ? (atTop ? sr.y - 10 : R.H - sr.y - sr.h - 10) + "px" : "";
+  lk.style.overflowY = "auto";
+  if (st.screen === "inner") {
+    const onLeft = sr.x < R.W / 2;
+    const x = R.spread ? (onLeft ? R.W * 0.75 : R.W * 0.25) - 170 : Math.min(R.W - 360, Math.max(20, sr.x - 170));
+    lk.style.left = x + "px"; lk.style.bottom = "64px";
+  }
+  void lk.offsetWidth; lk.classList.add("on");
+  if (info.found) resolveCtx($(".wd", lk), info, sentence);
+}
+function hideLookup() {
+  if (!R) return;
+  R.lk.classList.remove("on");
+  $$(".w.hl", R.flow).forEach(s => { s.classList.remove("hl"); if (s.classList.contains("sv")) s.classList.remove("tmp"); else unwrap(s); });
+  st.lkSentence = ""; st.lkWord = "";
+}
+let formsKey = "", formsRe = null;
+function markSaved() {
+  if (!R) return;
+  $$(".w.sv", R.flow).forEach(s => { s.classList.remove("sv"); if (!s.classList.contains("hl")) { s.classList.add("tmp"); unwrap(s); } });
+  const lemmas = [...saved.keys()];
+  if (!lemmas.length) return;
+  const key = lemmas.join(",");
+  if (key !== formsKey) {
+    formsKey = key;
+    const forms = [...new Set(JSON.parse(N.formsOf(JSON.stringify(lemmas))))].sort((a, b) => b.length - a.length);
+    formsRe = new RegExp("\\b(" + forms.map(f => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "gi");
+  }
+  const nodes = [], w = document.createTreeWalker(R.flow, NodeFilter.SHOW_TEXT);
+  for (let n; (n = w.nextNode());) { formsRe.lastIndex = 0; if (formsRe.test(n.nodeValue)) nodes.push(n); }
+  for (const n of nodes) {
+    const t = n.nodeValue, frag = document.createDocumentFragment(); let last = 0, m;
+    if (n.parentElement.classList.contains("w")) { n.parentElement.classList.add("sv"); continue; }
+    formsRe.lastIndex = 0;
+    while ((m = formsRe.exec(t))) { frag.append(t.slice(last, m.index)); const s = el("span", "w sv"); s.textContent = m[0]; frag.append(s); last = m.index + m[0].length; }
+    frag.append(t.slice(last)); n.replaceWith(frag);
+  }
+  R.tnDirty = true;
+}
+function bookWords() { return [...saved].filter(([, m]) => st.book && m.book === st.book.id); }
+
+/* ---------- 阅读器里的卡片 ---------- */
+function openToc() {
+  const toc = st.book.toc && st.book.toc.length ? st.book.toc : st.book.spine.map((_, i) => ({ t: `第 ${i + 1} 部分`, ch: i, frag: "" }));
+  const curIdx = st.book.toc && st.book.toc.length ? tocIndexAt(R.ch, R.page + (R.spread ? 1 : 0)) : R.ch;
+  const chs = toc.map((c, i) => `<li class="${i === curIdx ? "cur" : ""}"><button data-go-ch="${c.ch}" data-frag="${esc(c.frag || "")}"><span class="lw">${esc(c.t)}</span><span class="ls">${R.counts ? globalStart(c.ch) + tocPage(c) + 1 : ""}</span></button></li>`).join("");
+  const marks = (bookmarks[st.book.id] || []).slice().sort((a, b) => a.ch - b.ch || a.off - b.off);
+  const total = R.counts ? totalPages() : st.book.spine.length;
+  const cur = R.counts ? globalStart(R.ch) + R.page : R.ch;
+  const label = v => R.counts ? `第 ${v + 1} 页` : `第 ${v + 1} 部分`;
+  openSheet(`<div class="sh-head"><h3>${esc(st.book.title)}</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
+    <div class="sh-body flush">
+      <div style="padding:4px 20px 8px"><input class="scrub" id="scrub" type="range" min="0" max="${total - 1}" step="1" value="${cur}" aria-label="阅读进度"><div class="scrub-l"><span id="scrub-l">${label(cur)}</span><span>共 ${total} ${R.counts ? "页" : "部分"}</span></div></div>
+      <div class="sec-s">目录</div><ul class="list toc">${chs}</ul>
+      ${marks.length ? `<div class="sec-s">书签</div><ul class="list">${marks.map(m => `<li><button data-go-ch="${m.ch}" data-off="${m.off}"><span class="lw">${esc(chapterTitle(m.ch, m.ch === R.ch ? pageForOffset(m.off) : 0))}</span><span class="ls">${new Date(m.t).toLocaleDateString("zh-CN")}</span></button></li>`).join("")}</ul>` : ""}
+    </div>`);
+  setTimeout(() => $("#sheet .toc li.cur")?.scrollIntoView({ block: "center" }), 0);
+  const sc = $("#scrub");
+  let scrubT;
+  sc.addEventListener("input", () => {
+    const v = +sc.value; $("#scrub-l").textContent = label(v);
+    clearTimeout(scrubT); scrubT = setTimeout(() => goGlobal(v), 80);
+  });
+}
+async function goGlobal(v) {
+  if (!R) return;
+  if (!R.counts) { if (v !== R.ch) await loadChapter(v, { page: 0 }); return; }
+  let ch = 0, s = 0;
+  while (ch < R.counts.length - 1 && s + (ch === R.ch ? R.pages : R.counts[ch]) <= v) { s += ch === R.ch ? R.pages : R.counts[ch]; ch++; }
+  if (ch === R.ch) setPage(Math.min(R.pages - 1, v - s)); else await loadChapter(ch, { page: v - s });
+}
+function openFind() {
+  openSheet(`<div class="sh-head"><h3>查单词</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
+    <div class="sh-body flush" id="fbody"><label class="search">${I.search}<input id="fq" placeholder="输入单词" autocomplete="off" autocapitalize="off" spellcheck="false"></label><ul class="list" id="fres" style="margin-top:8px"></ul></div>`);
+  const q = $("#fq"), res = $("#fres");
+  q.addEventListener("input", () => {
+    const v = q.value.trim();
+    res.innerHTML = v ? (JSON.parse(N.prefix(v)).slice(0, 8).map(h => `<li><button data-fw="${esc(h.w)}"><span class="lw">${esc(h.w)}</span><span class="lm">${esc(h.m)}</span></button></li>`).join("") || `<li class="empty">词典里没有 ${esc(v)}</li>`) : "";
+  });
+  setTimeout(() => { q.focus({ preventScroll: true }); N.keyboard(true); }, 350);
+}
+function openBookWords() {
+  const ws = bookWords();
+  openSheet(`<div class="sh-head"><h3>本书生词</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
+    <div class="sh-body flush">${ws.length ? `<ul class="list">${ws.map(([w, m]) => `<li><button data-go-ch="${m.pos ? m.pos.ch : ""}" data-off="${m.pos ? m.pos.off : ""}"><span class="lw">${esc(w)}</span><span class="lm">${esc(m.sense || senseOf(w))}</span></button></li>`).join("")}</ul>` : '<div class="empty">长按书里的单词，加入生词本后会出现在这里</div>'}</div>`);
+}
+const THEMES = [["original", "原色", "#fcfcfd", "#1c2024"], ["quiet", "安静", "#212225", "#b0b4ba"], ["paper", "纸张", "#f9f9f8", "#21201c"], ["bold", "粗体", "#fcfcfd", "#1c2024"], ["calm", "平静", "#f2f0e7", "#3b352b"], ["focus", "专注", "#111110", "#ffe7b3"]];
+function openThemes() {
+  const seg = (key, opts) => `<span class="mini">${opts.map(([v, t]) => `<button data-set="${key}" data-v="${v}" aria-pressed="${st[key] === v}">${t}</button>`).join("")}</span>`;
+  openSheet(`<div class="sh-head"><h3>主题与设置</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
+    <div class="sh-body">
+      <div class="size-row"><div class="seg2"><button data-size="-1" aria-label="缩小字号" style="font-size:14px">A</button><button data-size="1" aria-label="放大字号" style="font-size:28px">A</button></div></div>
+      <div class="themes">${THEMES.map(([k, n, bg, fg]) => `<button class="th" data-th="${k}" aria-pressed="${st.theme === k}" style="--tb:${bg};--tf:${fg}"><span class="aa" style="${k === "bold" ? "font-weight:700" : ""}">Aa</span><span class="nm">${n}</span></button>`).join("")}</div>
+      <div class="opts">
+        <div class="opt"><span>字体</span>${seg("font", [["literata", "Literata"], ["source", "Source Serif"], ["sans", "无衬线"]])}</div>
+        <div class="opt"><span>翻页</span>${seg("turn", [["curl", "仿真"], ["slide", "滑动"], ["fade", "淡入"], ["none", "无"]])}</div>
+        ${st.screen === "inner" ? `<div class="opt"><span>双页</span><button class="switch" role="switch" data-spread aria-checked="${st.spread}" aria-label="双页"></button></div>` : ""}
+      </div>
+    </div>`);
+}
+
+/* ---------- 设置 ---------- */
+function openSettings() {
+  if (st.kb) N.keyboard(false);
+  const hasTr = N.hasTr();
+  openSheet(`<div class="sh-head"><h3>设置</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
+    <div class="sh-body">
+      <div class="opts" style="margin-top:0">
+        <div class="opt"><span>Jev 判断生词</span><button class="txt-btn" data-st="testjev">测试连接</button></div>
+        <div class="opt"><span>音量键翻页</span><button class="switch" role="switch" data-st="volume" aria-checked="${!!settings.volume}" aria-label="音量键翻页"></button></div>
+      </div>
+      <label class="fl"><span>读者水平</span><textarea class="field" data-sf="level">${esc(settings.level)}</textarea></label>
+      <div class="st-sec">整句翻译</div>
+      <label class="fl"><span>接口地址</span><input class="field" data-sf="trUrl" value="${esc(settings.trUrl)}" autocapitalize="off" spellcheck="false"></label>
+      <label class="fl"><span>模型</span><input class="field" data-sf="trModel" value="${esc(settings.trModel)}" autocapitalize="off" spellcheck="false"></label>
+      <label class="fl"><span>Key</span><input class="field" type="password" data-sf="trKey" placeholder="${hasTr ? "已设置" : "未设置"}" autocomplete="off"></label>
+      <div class="opts"><div class="opt"><span>「认识」的词</span><button class="txt-btn" data-st="clearknown">${known.size ? `清除 ${known.size} 个` : "没有记录"}</button></div></div>
+      <div class="about">书边译 ${esc(N.version())}<br>词典 ECDICT，MIT 许可<br>字体 Literata、Source Serif 4，SIL Open Font License</div>
+    </div>`, "", () => {});
+}
+sheet.addEventListener("change", e => {
+  const f = e.target.closest("[data-sf]"); if (!f) return;
+  if (f.dataset.sf === "trKey") { N.setTrKey(f.value); f.value = ""; f.placeholder = f.value || N.hasTr() ? "已设置" : "未设置"; toast("已保存"); return; }
+  settings[f.dataset.sf] = f.value.trim() || ({ level: DEFAULT_LEVEL, trUrl: "https://api.deepseek.com/v1", trModel: "deepseek-chat" })[f.dataset.sf];
+  kv.set("settings", settings);
+});
+
+sheet.addEventListener("click", async e => {
+  if (e.target.closest("[data-close]")) { closeSheet(); return; }
+  const swap = e.target.closest("[data-swap]");
+  if (swap) { const l = !document.documentElement.classList.contains("side-l"); document.documentElement.classList.toggle("side-l", l); kv.set("cardSide", l ? "l" : "r"); return; }
+  const bk = e.target.closest("[data-bk]");
+  if (bk) {
+    const id = sheet.dataset.book;
+    if (bk.dataset.bk === "toggle") { const p = progOf(id); p.status = p.status === "done" ? "reading" : "done"; if (p.status === "done") p.progress = 1; saveProg(); closeSheet(); renderLibrary(); }
+    else if (bk.textContent !== "确认删除") bk.textContent = "确认删除";
+    else { N.deleteBook(id); BOOKS = BOOKS.filter(b => b.id !== id); delete prog[id]; saveProg(); closeSheet(); renderLibrary(); toast("已删除"); }
+    return;
+  }
+  const s = e.target.closest("[data-st]");
+  if (s) {
+    if (s.dataset.st === "volume") { settings.volume = !settings.volume; s.setAttribute("aria-checked", settings.volume); kv.set("settings", settings); }
+    else if (s.dataset.st === "clearknown") {
+      if (!known.size) return;
+      if (s.textContent !== "确认清除") { s.textContent = "确认清除"; return; }
+      known.clear(); kv.set("known", []); s.textContent = "没有记录"; toast("已清除");
+    } else if (s.dataset.st === "testjev") {
+      s.textContent = "正在连接";
+      try {
+        const a = await jevAsk("It is a way I have of driving off the spleen.", { hard_spleen: { type: "noul", instructions: { word: "spleen", question: NOUL.question }, criteria: NOUL.criteria } });
+        s.textContent = a.hard_spleen ? "连接正常" : "返回格式不对";
+      } catch (err) { s.textContent = err.message || "连接失败"; }
+    }
+    return;
+  }
+  const fw = e.target.closest("[data-fw]"); if (fw) { if (st.kb) N.keyboard(false); $("#fbody").innerHTML = `<div style="padding:4px 20px 0">${wordHTML(lookupWord(fw.dataset.fw), {})}</div>`; return; }
+  if (!R) return;
+  const go = e.target.closest("[data-go-ch]");
+  if (go && go.dataset.goCh !== "") {
+    closeSheet();
+    const ch = +go.dataset.goCh, off = go.dataset.off, frag = go.dataset.frag;
+    if (off != null && off !== "") { if (ch === R.ch) setPage(pageForOffset(+off)); else await loadChapter(ch, { off: +off }); }
+    else await loadChapter(ch, frag ? { frag } : { page: 0 });
+    return;
+  }
+  const th = e.target.closest("[data-th]");
+  if (th) {
+    const wasBold = st.theme === "bold"; st.theme = th.dataset.th; R.r.dataset.theme = st.theme; saveReaderPrefs();
+    $$("[data-th]", sheet).forEach(b => b.setAttribute("aria-pressed", b === th));
+    if (wasBold !== (st.theme === "bold")) { relayout(); invalidatePages(); }
+    return;
+  }
+  const sz = e.target.closest("[data-size]");
+  if (sz) {
+    const a = anchorOffset(); st.size = Math.max(14, Math.min(26, st.size + +sz.dataset.size)); saveReaderPrefs();
+    R.r.style.setProperty("--r-size", st.size + "px"); layout(a); invalidatePages(); return;
+  }
+  const set = e.target.closest("[data-set]");
+  if (set) {
+    st[set.dataset.set] = set.dataset.v; saveReaderPrefs();
+    $$(`[data-set="${set.dataset.set}"]`, sheet).forEach(b => b.setAttribute("aria-pressed", b === set));
+    if (set.dataset.set === "font") { const a = anchorOffset(); R.r.dataset.font = st.font; await document.fonts.ready; layout(a); invalidatePages(); }
+    if (set.dataset.set === "turn") demoTurn();
+    return;
+  }
+  const sp = e.target.closest("[data-spread]");
+  if (sp) { st.spread = !st.spread; saveReaderPrefs(); sp.setAttribute("aria-checked", st.spread); relayout(); invalidatePages(); }
+});
+async function demoTurn() { // 选了翻页方式后，在书页上演示一次
+  if (st.turn === "none" || !R) return;
+  await wait(150);
+  const fwd = R.page + (R.spread ? 2 : 1) < R.pages;
+  await turn(fwd ? 1 : -1); await wait(180); await turn(fwd ? -1 : 1);
+}
+
+/* ===================== 拍照找生词 ===================== */
+function openCamera(fromAlbum) {
+  if (st.kb) N.keyboard(false);
+  document.activeElement?.blur?.();
+  st.awaitScan = true;
+  if (fromAlbum) N.album(); else N.camera();
+}
+handlers.scanImage = d => {
+  st.awaitScan = false;
+  document.activeElement?.blur?.(); N.keyboard(false);
+  st.scan = { url: d.url, w: d.w, h: d.h, t0: Date.now(), hard: [], maybe: [], words: [], offline: false, done: false };
+  st.more = false;
+  cam.className = "cam";
+  cam.innerHTML = `
+    <div class="photo-bg"></div>
+    <div class="photo" id="photo"><img src="${esc(d.url)}" alt=""><div class="scanline"></div></div>
+    <div class="res" id="res"></div>`;
+  placePhoto();
+  void cam.offsetWidth; cam.classList.add("on", "result");
+  $("#res", cam).innerHTML = `<div class="res-head"><button class="back" data-c="cancel">${I.chev}查单词</button><span class="sp"></span></div><div class="sum" id="stage-t">正在识别文字</div>`;
+  cam.classList.add("listed");
+};
+function placePhoto() {
+  const s = st.scan; if (!s) return;
+  const [W, H] = dims(), top = sat(), pbg = $(".photo-bg", cam), res = $("#res", cam), ph = $("#photo", cam);
+  const box = st.screen === "outer" ? { x: 0, y: top, w: W, h: Math.round(H * 0.42) } : { x: 0, y: top, w: W - 380, h: H - top };
+  Object.assign(pbg.style, { left: box.x + "px", top: box.y + "px", width: box.w + "px", height: box.h + "px" });
+  const k = Math.min((box.w - 40) / s.w, (box.h - 30) / s.h);
+  s.k = k;
+  Object.assign(ph.style, { width: s.w * k + "px", height: s.h * k + "px", left: box.x + (box.w - s.w * k) / 2 + "px", top: box.y + (box.h - s.h * k) / 2 + "px" });
+  if (st.screen === "outer") Object.assign(res.style, { left: "0px", width: W + "px", top: box.y + box.h + "px", bottom: "0px", borderLeft: "0" });
+  else Object.assign(res.style, { left: W - 380 + "px", width: "380px", top: top + "px", bottom: "0px", borderLeft: "0.5px solid var(--line)" });
+}
+handlers.scanCancel = () => { st.awaitScan = false; if (!cam.classList.contains("on") && st.tab === "physical") focusQuery(); };
+handlers.ocr = async r => {
+  const s = st.scan; if (!s || !cam.classList.contains("on")) return;
+  if (!r.ok) {
+    $("#res", cam).innerHTML = `<div class="res-head"><button class="back" data-c="cancel">${I.chev}查单词</button><span class="sp"></span></div>
+      <div class="fail"><span style="font-size:17px">没有识别到文字</span><button class="pill primary" data-c="again" style="flex:none">重拍</button></div>`;
+    return;
+  }
+  s.words = r.words; s.passage = r.passage;
+  const line = $(".scanline", cam), h = $("#photo", cam).offsetHeight;
+  const judging = judge(r.cands, r.passage);
+  if (!reduced) await line.animate([{ top: "-70px", opacity: 1 }, { top: h - 70 + "px", opacity: 1, offset: .92 }, { top: h - 70 + "px", opacity: 0 }], { duration: 1150, easing: "cubic-bezier(.45,.05,.4,1)" }).finished;
+  const t = $("#stage-t", cam); if (t) t.textContent = "正在判断哪些是生词";
+  await judging;
+  if (st.scan !== s) return;
+  s.done = true; s.ms = Date.now() - s.t0;
+  drawMarks();
+  $$(".hw2", cam).forEach((x, i) => setTimeout(() => x.classList.add("lit"), i * 60));
+  renderScanList();
+};
+async function judge(cands, passage) {
+  const s = st.scan;
+  cands = cands.slice().sort((a, b) => b.rank - a.rank).slice(0, 40);
+  try {
+    if (!N.hasJev() || !cands.length) throw new Error("offline");
+    const q = {};
+    cands.forEach(c => { q["hard_" + qid(c.lemma)] = { type: "noul", instructions: { word: c.w, question: NOUL.question }, criteria: NOUL.criteria }; });
+    const a = await jevAsk(passage, q);
+    cands.forEach(c => { c.p = a["hard_" + qid(c.lemma)]?.noul ?? 0; });
+    s.hard = cands.filter(c => c.p >= 0.5).sort((x, y) => y.p - x.p);
+    s.maybe = cands.filter(c => c.p < 0.5).sort((x, y) => y.p - x.p);
+    const q2 = {};
+    s.hard.forEach(c => { const items = senseItems(lookupWord(c.lemma)); if (items.length > 1) q2["sense_" + qid(c.lemma)] = senseQuestion(c.w, items); });
+    if (Object.keys(q2).length) {
+      try { const a2 = await jevAsk(passage, q2); s.hard.forEach(c => { c.sense = a2["sense_" + qid(c.lemma)]?.choice || ""; }); } catch (e) { /* 语境义拿不到时只显示词典释义 */ }
+    }
+  } catch (e) {
+    s.offline = true; s.hard = cands.slice(0, 20); s.maybe = [];
+  }
+}
+function drawMarks() {
+  const s = st.scan, ph = $("#photo", cam);
+  $$(".hw2", ph).forEach(m => m.remove());
+  const hard = new Set(s.hard.map(c => c.lemma).filter(l => !known.has(l)));
+  for (const w of s.words) {
+    if (!hard.has(w.lemma)) continue;
+    const m = el("span", "hw2"); m.dataset.sw = w.lemma;
+    Object.assign(m.style, { left: w.x * s.k - 2 + "px", top: w.y * s.k - 1 + "px", width: w.w * s.k + 4 + "px", height: w.h * s.k + 2 + "px" });
+    ph.append(m);
+  }
+}
+function renderScanList() {
+  const s = st.scan;
+  const hard = s.hard.filter(x => !known.has(x.lemma)), maybe = s.maybe.filter(x => !known.has(x.lemma));
+  const row = (x, i) => {
+    const info = lookupWord(x.lemma), on = saved.has(info.lemma);
+    return `<li style="animation-delay:${i * 50}ms" data-sw="${esc(x.lemma)}"><div class="row"><span><span class="lw">${esc(info.lemma)}</span>${x.w !== x.lemma ? `<span class="note" style="margin-left:6px">原文 ${esc(x.w)}</span>` : ""}${info.phonetic ? `<span class="note" style="margin-left:6px">/${esc(info.phonetic)}/</span>` : ""}</span>
+      <span class="rowacts"><button data-ss="${esc(info.lemma)}" aria-pressed="${on}" aria-label="收藏">${on ? I.starOn : I.star}</button><button data-known="${esc(x.lemma)}" aria-label="认识">${I.check}</button></span>
+      <span class="lm">${esc(x.sense || senseOf(info.lemma))}${x.sense ? '<span class="tagc">本句</span>' : ""}</span></div></li>`;
+  };
+  const sum = s.offline ? "离线判断，可能不准" : `${hard.length} 个生词，识别和判断共 ${(s.ms / 1000).toFixed(1)} 秒`;
+  $("#res", cam).innerHTML = `<div class="res-head"><button class="back" data-c="cancel">${I.chev}查单词</button><span class="sp"></span><button class="txt-btn" data-c="again">重拍</button></div>
+    <div class="sum">${sum}</div>
+    <div class="scroll"><ul class="list">${hard.length ? hard.map(row).join("") : '<li class="empty">这一页没有生词</li>'}${st.more ? '<li><div class="sec-s" style="padding-left:0">可能认识</div></li>' + maybe.map((x, i) => row(x, i + hard.length)).join("") : ""}</ul>
+    ${maybe.length ? `<button class="more" data-c="more">${st.more ? "收起" : `还有 ${maybe.length} 个可能认识的词`}</button>` : ""}</div>`;
+}
+function closeCam() { cam.classList.remove("on"); st.scan = null; if (st.tab === "physical") focusQuery(); }
+if (!CARD) {
+  cam.addEventListener("click", e => {
+    const c = e.target.closest("[data-c]");
+    if (c) {
+      const a = c.dataset.c;
+      if (a === "cancel") closeCam();
+      else if (a === "again") { st.awaitScan = true; N.camera(); }
+      else if (a === "more") { st.more = !st.more; renderScanList(); }
+      return;
+    }
+    const ss = e.target.closest("[data-ss]");
+    if (ss) { const x = [...st.scan.hard, ...st.scan.maybe].find(c => c.lemma === ss.dataset.ss); toggleSave(ss.dataset.ss, "拍照", null, { word: x?.w, sense: x?.sense || "", sentence: "" }); renderScanList(); return; }
+    const kn = e.target.closest("[data-known]");
+    if (kn) { known.add(kn.dataset.known); kv.set("known", [...known]); $$(`.hw2[data-sw="${CSS.escape(kn.dataset.known)}"]`, cam).forEach(h => h.classList.add("gone")); renderScanList(); toast("以后不再列出这个词"); return; }
+    const sw = e.target.closest("[data-sw]");
+    if (sw) {
+      $$(".on[data-sw]", cam).forEach(n => n.classList.remove("on"));
+      $$(`[data-sw="${CSS.escape(sw.dataset.sw)}"]`, cam).forEach(n => n.classList.add("on"));
+      if (sw.matches(".hw2")) $(`li[data-sw="${CSS.escape(sw.dataset.sw)}"]`, cam)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      else if (!sw.matches(".hw2")) { const x = [...st.scan.hard, ...st.scan.maybe].find(c => c.lemma === sw.dataset.sw); if (x && st.screen === "outer") showWordCard(x.lemma, "拍照"); }
+    }
+  });
+}
+function showWordCard(word, src) { const info = lookupWord(word); st.pickSrc = src; openSheet(`<div class="sh-body">${wordHTML(info, { close: true })}</div>`, "lk-card"); }
+
+/* ===================== 外屏 / 内屏 ===================== */
+let lastW = innerWidth;
+async function setScreen(s) {
+  if (s === st.screen) return;
+  const anchor = R ? anchorOffset() : null;
+  st.screen = s; fit();
+  if (sheet.classList.contains("on") && !CARD) closeSheet();
+  if (!CARD) render(st.tab);
+  if (R) { hideLookup(); layout(anchor); invalidatePages(); }
+  if (cam.classList?.contains("on")) { placePhoto(); if (st.scan?.done) drawMarks(); $$(".hw2", cam).forEach(x => x.classList.add("lit")); }
+}
+new ResizeObserver(() => {
+  const s = innerWidth >= 600 ? "inner" : "outer";
+  if (CARD) { document.documentElement.classList.toggle("inner-card", s === "inner"); st.screen = s; fit(); return; }
+  if (s !== st.screen) { setScreen(s); lastW = innerWidth; return; }
+  if (R && !st.busy && !st.kb && Math.abs(innerWidth - lastW) + Math.abs(innerHeight - R.H) > 1) { relayout(); invalidatePages(); }
+  lastW = innerWidth;
+  if (cam.classList?.contains("on") && st.scan) { placePhoto(); if (st.scan.done) drawMarks(); $$(".hw2", cam).forEach(x => x.classList.add("lit")); }
+}).observe(document.documentElement);
+
+/* ===================== 返回键 ===================== */
+window.onBack = () => {
+  if (CARD) { closeCard(); return true; }
+  if (sheet.classList.contains("on")) { closeSheet(); return true; }
+  if (cam.classList.contains("on")) { closeCam(); return true; }
+  if (R) {
+    if (R.lk.classList.contains("on")) { hideLookup(); return true; }
+    if (R.menu.classList.contains("on")) { R.menu.classList.remove("on"); return true; }
+    closeBook(); return true;
+  }
+  if (st.tab === "physical" && (st.query || st.pick)) { clearQuery(); return true; }
+  if (st.tab !== "physical") { setTab("physical"); return true; }
+  return false;
+};
+
+/* ===================== 外部入口卡片 ===================== */
+function closeCard() { closeSheet(); setTimeout(() => N.close(), reduced ? 0 : 300); }
+function cardFor(text) {
+  const words = text.match(/[A-Za-z][A-Za-z’'\-]*/g) || [];
+  if (words.length > 1 && N.hasTr()) {
+    openSheet(`<div class="sh-head"><h3>整句翻译</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
+      <div class="sh-body"><div class="wd"><div class="trx src">${esc(text.trim())}</div><div class="trx" id="trout"></div></div></div>`, "lk-card", closeCard);
+    streamTr(text.trim(), false, $("#trout"));
+  } else if (words.length) {
+    openSheet(`<div class="sh-body" style="padding-top:14px">${wordHTML(lookupWord(words[0]), { close: true, swap: st.screen === "inner" })}</div>`, "lk-card", closeCard);
+  } else {
+    openSheet(`<div class="sh-head"><h3>查单词</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
+      <div class="sh-body flush" id="fbody"><label class="search">${I.search}<input id="fq" placeholder="输入单词" autocomplete="off" autocapitalize="off" spellcheck="false"></label><ul class="list" id="fres" style="margin-top:8px"></ul></div>`, "lk-card", closeCard);
+    const q = $("#fq"), res = $("#fres");
+    q.addEventListener("input", () => {
+      const v = q.value.trim();
+      res.innerHTML = v ? (JSON.parse(N.prefix(v)).slice(0, 8).map(h => `<li><button data-fw="${esc(h.w)}"><span class="lw">${esc(h.w)}</span><span class="lm">${esc(h.m)}</span></button></li>`).join("") || `<li class="empty">词典里没有 ${esc(v)}</li>`) : "";
+    });
+    setTimeout(() => { q.focus({ preventScroll: true }); N.keyboard(true); }, 350);
+  }
+  requestAnimationFrame(() => requestAnimationFrame(() => N.perf("card_paint", Math.round(performance.now()))));
+}
+async function startCard() {
+  document.documentElement.classList.add("card-mode");
+  if (kv.get("cardSide", "r") === "l") document.documentElement.classList.add("side-l");
+  st.screen = innerWidth >= 600 ? "inner" : "outer"; fit();
+  document.documentElement.classList.toggle("inner-card", st.screen === "inner");
+  let q = params.get("q") || "";
+  // 剪贴板只在窗口获得焦点后才能读
+  if (params.get("clip")) for (let i = 0; i < 10 && !q; i++) { await wait(80); q = N.clip(); }
+  cardFor(q);
+}
+
+// 回到 App 时，停在查单词页就重新聚焦搜索框
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !CARD && !st.awaitScan && st.tab === "physical" && !st.book && !cam.classList.contains("on") && !sheet.classList.contains("on")) focusQuery();
+});
+
+/* ===================== 启动 ===================== */
+if (CARD) startCard();
+else { fit(); setTab("physical"); }
+N.ready();

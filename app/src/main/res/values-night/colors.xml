@@ -1,0 +1,8 @@
+<resources>
+    <color name="bg">#111113</color>
+    <color name="bg2">#18191B</color>
+    <color name="line">#363A3F</color>
+    <color name="faint">#696E77</color>
+    <color name="accent">#F76B15</color>
+    <color name="accent_text">#FF801F</color>
+</resources>

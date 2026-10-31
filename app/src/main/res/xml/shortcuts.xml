@@ -1,1 +1,8 @@
-<shortcuts xmlns:android="http://schemas.android.com/apk/res/android"><shortcut android:shortcutId="lookup" android:shortcutShortLabel="@string/shortcut_lookup"><intent android:action="android.intent.action.VIEW" android:targetPackage="app.shubian" android:targetClass="app.shubian.MainActivity" /></shortcut><shortcut android:shortcutId="scan" android:shortcutShortLabel="@string/shortcut_scan"><intent android:action="android.media.action.IMAGE_CAPTURE" android:targetPackage="app.shubian" android:targetClass="app.shubian.MainActivity" /></shortcut></shortcuts>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="lookup" android:shortcutShortLabel="@string/shortcut_lookup" android:icon="@drawable/ic_search">
+        <intent android:action="android.intent.action.MAIN" android:targetPackage="app.shubian" android:targetClass="app.shubian.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="scan" android:shortcutShortLabel="@string/shortcut_scan" android:icon="@drawable/ic_camera">
+        <intent android:action="app.shubian.SCAN" android:targetPackage="app.shubian" android:targetClass="app.shubian.MainActivity" />
+    </shortcut>
+</shortcuts>
