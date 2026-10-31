@@ -22,3 +22,10 @@
 - 检查：`./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
 - 截图：`docs/screens/M3/`；未运行模拟器，未生成设备截图。
 - 偏差：当前阅读器使用可读的原生文本占位页，尚未完成 ZIP 内 OPF/nav/XHTML 解析、WebView 资源拦截、真实多栏分页和双页模式；这些在后续迭代继续补齐。
+
+## M4
+- 阅读页增加四种翻页方式的可切换动画路径：仿真（轻微卷页感）、滑动、淡入和无动画；读取系统 `ANIMATOR_DURATION_SCALE`，系统关闭动画时直接切换。
+- 主题选择结果保存到设置，阅读工具栏保留目录、字号、字体、书签入口。
+- 检查：`./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
+- 截图：`docs/screens/M4/`；未运行模拟器，未生成设备截图。
+- 偏差：仿真动画当前用原生 View 的轻微旋转代替位图 mesh 卷曲，拖动跟手和双页书脊轴尚未实现。
