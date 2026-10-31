@@ -1,0 +1,602 @@
+<title>书边译原型</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap">
+<style>
+/* 布局：上方并排两块等比例设备屏（按 dp 绘制后整体缩放），下方是方案要点。颜色全部取自 Radix Colors（slate、sand、amber、teal、blackA）。 */
+:root {
+  --page: #f9f9fb;        /* slate2 */
+  --panel: #fcfcfd;       /* slate1 */
+  --line: #d9d9e0;        /* slate6 */
+  --text: #1c2024;        /* slate12 */
+  --muted: #60646c;       /* slate11 */
+  --paper: #fdfdfc;       /* sand1 */
+  --ink: #21201c;         /* sand12 */
+  --ink-muted: #63635e;   /* sand11 */
+  --bezel: #1c2024;       /* slate12 */
+  --hl: #ffee9c;          /* amber4 */
+  --accent: #12a594;      /* teal9 */
+  --accent-text: #008573; /* teal11 */
+  --accent-soft: #e0f8f3; /* teal3 */
+  --on-accent: #ffffff;
+  --tb-bg: #1c2024;       /* slate12 */
+  --tb-fg: #fcfcfd;       /* slate1 */
+  --shadow: 0 8px 28px #0000001f, 0 1px 3px #0000000f; /* blackA5, blackA3 */
+  --f-book: "Literata", "Songti SC", "Noto Serif SC", Georgia, serif;
+  --f-ui: -apple-system, "MiSans", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #111113; --panel: #18191b; --line: #363a3f; --text: #edeef0; --muted: #b0b4ba;
+    --paper: #191918; --ink: #eeeeec; --ink-muted: #b5b3ad; --bezel: #2e3135; --hl: #4d3000;
+    --accent: #12a594; --accent-text: #0bd8b6; --accent-soft: #0d2d2a; --on-accent: #ffffff;
+    --tb-bg: #2e3135; --tb-fg: #edeef0; --shadow: 0 8px 28px #00000099, 0 1px 3px #00000066;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #111113; --panel: #18191b; --line: #363a3f; --text: #edeef0; --muted: #b0b4ba;
+  --paper: #191918; --ink: #eeeeec; --ink-muted: #b5b3ad; --bezel: #2e3135; --hl: #4d3000;
+  --accent: #12a594; --accent-text: #0bd8b6; --accent-soft: #0d2d2a; --on-accent: #ffffff;
+  --tb-bg: #2e3135; --tb-fg: #edeef0; --shadow: 0 8px 28px #00000099, 0 1px 3px #00000066;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--page); color: var(--text); font-family: var(--f-ui); font-size: 14px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+.wrap { max-width: 1360px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+header p { margin: 4px 0 0; color: var(--muted); }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.seg { display: inline-flex; padding: 3px; gap: 2px; background: var(--panel); border: 0.5px solid var(--line); border-radius: 10px; }
+.seg button { padding: 6px 14px; border-radius: 7px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+
+.stage { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-end; justify-content: center; }
+.dev { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.dev-label { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); }
+.dev-label b { color: var(--text); font-weight: 600; font-size: 14px; }
+.bezel { background: var(--bezel); padding: 8px; }
+.viewport { overflow: hidden; position: relative; }
+.screen { position: absolute; top: 0; left: 0; transform-origin: top left; background: var(--paper); color: var(--ink); overflow: hidden; }
+
+/* 设备内部：以下尺寸都是 dp */
+.status { height: 28px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.r-top { height: 40px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--ink-muted); }
+.r-text { font-family: var(--f-book); font-size: 17px; line-height: 27px; overflow: hidden; text-align: justify; hyphens: auto; -webkit-hyphens: auto; padding: 0 24px; }
+.r-text h2 { font-size: 17px; line-height: 27px; font-weight: 600; margin: 0 0 27px; text-align: left; }
+.r-text p { margin: 0 0 0; text-indent: 0; }
+.r-text p + p { text-indent: 1.4em; }
+.r-foot { height: 32px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.w { cursor: pointer; border-radius: 2px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.sel, .s.sel .w { background: var(--hl); box-shadow: 0 0 0 1px var(--hl); }
+.s.sel { background: var(--hl); }
+
+.inner .r-text { column-count: 2; column-gap: 64px; column-fill: auto; padding: 0 40px; }
+.inner .r-top, .inner .r-foot { padding: 0 40px; }
+
+/* 系统文字选择菜单 */
+.tb { position: absolute; z-index: 5; display: flex; background: var(--tb-bg); color: var(--tb-fg); border-radius: 10px; box-shadow: var(--shadow); font-size: 14px; overflow: hidden; }
+.tb button { padding: 9px 14px; }
+.tb button + button { border-left: 0.5px solid #ffffff2e; }  /* whiteA4 */
+.tb .go { font-weight: 600; color: #0bd8b6; } /* 菜单在两种主题下都是深色底，用 teal 暗色阶 11 */
+
+/* 翻译卡片 */
+.card { position: absolute; z-index: 6; background: var(--panel); color: var(--text); font-family: var(--f-ui); display: flex; flex-direction: column; box-shadow: var(--shadow); border: 0.5px solid var(--line); }
+.outer .card { left: 0; right: 0; bottom: 0; max-height: 50%; border-radius: 16px 16px 0 0; border-bottom: 0; padding: 8px 20px 16px; }
+.inner .card { width: 380px; bottom: 24px; right: 24px; max-height: 70%; border-radius: 16px; padding: 16px 20px 12px; }
+.inner .card.left { right: auto; left: 24px; }
+.grab { width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto 12px; flex: none; }
+.c-head { display: flex; align-items: flex-start; gap: 12px; }
+.c-main { flex: 1; min-width: 0; }
+.hw { font-size: 22px; font-weight: 600; line-height: 1.25; font-family: var(--f-book); }
+.ph { color: var(--muted); font-size: 14px; }
+.src { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0; font-family: var(--f-book); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.x { width: 32px; height: 32px; margin: -4px -8px 0 0; border-radius: 8px; color: var(--muted); display: grid; place-items: center; flex: none; }
+.c-body { overflow-y: auto; margin-top: 12px; min-height: 0; }
+.defs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 17px; line-height: 1.5; }
+.pos { color: var(--muted); font-size: 14px; font-style: italic; font-family: var(--f-book); margin-right: 6px; }
+.zh { font-size: 17px; line-height: 1.65; margin: 0; }
+.empty { color: var(--muted); margin: 0; }
+.c-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 10px; border-top: 0.5px solid var(--line); }
+.acts { display: flex; gap: 4px; margin-left: -8px; }
+.act { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; color: var(--muted); font-size: 14px; }
+.act svg, .x svg, .icon-btn svg { width: 18px; height: 18px; flex: none; }
+.act[aria-pressed="true"] { color: var(--accent-text); }
+.act:hover, .x:hover, .icon-btn:hover { background: var(--page); }
+
+/* App 首页 */
+.home { position: absolute; inset: 28px 0 0 0; background: var(--panel); color: var(--text); font-family: var(--f-ui); display: flex; }
+.pane { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.inner .pane.list { flex: 0 0 340px; border-right: 0.5px solid var(--line); }
+.h-head { height: 56px; padding: 0 12px 0 24px; display: flex; align-items: center; justify-content: space-between; flex: none; }
+.h-head h3 { font-size: 22px; font-weight: 600; margin: 0; }
+.icon-btn { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--muted); }
+.h-tabs { padding: 0 24px 12px; flex: none; }
+.rows { list-style: none; margin: 0; padding: 0 0 0 24px; overflow-y: auto; }
+.rows li { padding: 12px 24px 12px 0; border-bottom: 0.5px solid var(--line); display: grid; grid-template-columns: 1fr auto; column-gap: 12px; }
+.rows .t { font-family: var(--f-book); font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rows .m { grid-column: 1 / -1; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rows .d { font-size: 12px; color: var(--muted); align-self: center; font-variant-numeric: tabular-nums; }
+.rows .none { color: var(--muted); display: block; border: 0; }
+.form { padding: 0 24px; display: flex; flex-direction: column; }
+.form .row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 0.5px solid var(--line); }
+.form .row span:last-child { color: var(--muted); text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.form .group { font-size: 12px; color: var(--muted); padding: 20px 0 4px; }
+.mini-seg { display: inline-flex; padding: 2px; gap: 2px; background: var(--page); border-radius: 8px; border: 0.5px solid var(--line); }
+.mini-seg button { padding: 3px 10px; border-radius: 6px; color: var(--muted); }
+.mini-seg button[aria-pressed="true"] { background: var(--panel); color: var(--text); font-weight: 600; }
+
+.hint { text-align: center; color: var(--muted); margin: -8px 0 0; }
+
+/* 拍照找生词 */
+.scan { position: absolute; inset: 28px 0 0 0; background: var(--panel); color: var(--text); font-family: var(--f-ui); display: flex; flex-direction: column; }
+.s-head { height: 56px; padding: 0 16px 0 12px; display: flex; align-items: center; gap: 4px; flex: none; }
+.s-head h3 { font-size: 22px; font-weight: 600; margin: 0; flex: 1; }
+.txt-btn { color: var(--accent-text); padding: 8px; border-radius: 8px; }
+.s-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.inner .s-body { flex-direction: row; }
+.photo { position: relative; overflow: hidden; background: var(--line); flex: none; height: 230px; }
+.inner .photo { flex: 1; height: auto; }
+.page { position: absolute; left: 50%; top: 14px; width: 520px; padding: 28px 32px; background: var(--paper); color: var(--ink); font-family: var(--f-book); font-size: 17px; line-height: 27px; text-align: justify; hyphens: auto; -webkit-hyphens: auto; transform-origin: top center; transform: translateX(-50%) rotate(-1.2deg) scale(.56); box-shadow: var(--shadow); }
+.inner .page { top: 24px; transform: translateX(-50%) rotate(-1.2deg) scale(.8); }
+.page p { margin: 0; }
+.page p + p { text-indent: 1.4em; }
+.hw { background: var(--hl); border-radius: 2px; box-shadow: 0 0 0 1px var(--hl); cursor: pointer; }
+.hw.on { box-shadow: 0 0 0 3px var(--accent); }
+.hw.known { background: none; box-shadow: none; }
+.s-list { flex: 1; min-height: 0; overflow-y: auto; }
+.inner .s-list { flex: 0 0 380px; border-left: 0.5px solid var(--line); }
+.s-sum { padding: 12px 24px 4px; color: var(--muted); font-size: 12px; }
+.wl { list-style: none; margin: 0; padding: 0 0 0 24px; }
+.wl li { padding: 10px 12px 10px 0; border-bottom: 0.5px solid var(--line); display: grid; grid-template-columns: 1fr auto; align-items: center; column-gap: 8px; cursor: pointer; }
+.wl li.on .w-t { color: var(--accent-text); }
+.w-t { font-family: var(--f-book); font-size: 17px; font-weight: 600; }
+.w-ph { color: var(--muted); font-size: 14px; font-weight: 400; margin-left: 8px; }
+.w-m { grid-column: 1; font-size: 14px; }
+.w-ctx { color: var(--accent-text); font-size: 12px; margin-left: 6px; }
+.w-acts { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 2px; }
+.w-acts button { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
+.w-acts button[aria-pressed="true"] { color: var(--accent-text); }
+.w-acts svg { width: 18px; height: 18px; }
+.more { display: block; margin: 8px 0 16px 16px; color: var(--accent-text); padding: 8px; border-radius: 8px; }
+.wl .sub { display: block; cursor: default; padding: 16px 0 4px; font-size: 12px; color: var(--muted); }
+
+/* 方案要点 */
+.plan { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 28px 40px; border-top: 0.5px solid var(--line); padding-top: 28px; }
+.plan section { min-width: 0; }
+.plan h2 { font-size: 17px; font-weight: 600; margin: 0 0 8px; }
+.plan p, .plan ul, .plan ol { margin: 0; color: var(--muted); }
+.plan ul, .plan ol { padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+.plan strong { color: var(--text); font-weight: 600; }
+@media (prefers-reduced-motion: no-preference) { .seg button, .act, .tb { transition: background-color 250ms ease-out, color 250ms ease-out; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>书边译</h1>
+      <p>选中单词，书页上直接出释义；拍一页书，找出里面的生词。</p>
+    </div>
+    <div class="seg" role="group" aria-label="原型状态">
+      <button id="st-word" aria-pressed="true">查单词</button>
+      <button id="st-lemma" aria-pressed="false">词形还原</button>
+      <button id="st-photo" aria-pressed="false">拍照找生词</button>
+      <button id="st-home" aria-pressed="false">App 首页</button>
+    </div>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="dev">
+      <div class="dev-label"><b>外屏</b><span>5.38 英寸 约 425 × 623 dp</span></div>
+      <div class="bezel" id="b-outer"><div class="viewport" id="v-outer"></div></div>
+    </div>
+    <div class="dev">
+      <div class="dev-label"><b>内屏</b><span>7.58 英寸 约 860 × 608 dp</span></div>
+      <div class="bezel" id="b-inner"><div class="viewport" id="v-inner"></div></div>
+    </div>
+  </div>
+  <p class="hint">点书页上的单词试试，长按或双击是整句翻译</p>
+
+  <div class="plan">
+    <section>
+      <h2>怎么用</h2>
+      <ol>
+        <li><strong>外部词典</strong>静读天下、KOReader 等可设为词典，长按单词直接出卡片。</li>
+        <li><strong>选中菜单</strong>其他 App 选中后点「书边译」，原型演示的就是这种。</li>
+        <li><strong>磁贴</strong>微信读书这类自带菜单的 App，先复制再点下拉栏磁贴。</li>
+      </ol>
+    </section>
+    <section>
+      <h2>外屏和内屏</h2>
+      <ul>
+        <li><strong>外屏</strong>底部卡片，最高半屏，上半页仍可读。</li>
+        <li><strong>内屏</strong>右下角 380 dp 浮动卡片，不挡左页；可换到左下角并记住。</li>
+        <li>展开、合上时保留当前卡片。</li>
+      </ul>
+    </section>
+    <section>
+      <h2>查词和体积</h2>
+      <ul>
+        <li>离线词典 ECDICT，约 6 万常用词，毫秒出结果，不联网不花钱。</li>
+        <li>变形词自动还原，wharves 查到 wharf，knocking 查到 knock。</li>
+        <li>整句翻译走在线大模型，配了 Key 才出现。</li>
+        <li>Kotlin + 原生 View，不引入第三方库，APK 主要是词典，估计几 MB。</li>
+      </ul>
+    </section>
+    <section>
+      <h2>拍照找生词</h2>
+      <ul>
+        <li>拍照或从相册选一页，本机识别文字，按词频先去掉常用词。</li>
+        <li>剩下的词交给 Jev 判断你是否认识，一次请求约 1 秒。</li>
+        <li>Jev 按上下文从词典义项里选出本句的意思，比如 mole 选「防波堤」。</li>
+        <li>点「认识」的词以后不再列出。</li>
+      </ul>
+    </section>
+    <section>
+      <h2>需要你确认</h2>
+      <ol>
+        <li>平时用哪个阅读 App，决定主入口。</li>
+        <li>书是否只有英文。</li>
+        <li>整句翻译首版要不要；要的话用 DeepSeek 官方 Key 还是 Magpie 网关。</li>
+      </ol>
+    </section>
+  </div>
+</div>
+
+<script>
+const SENT = [
+  ["Call me Ishmael.", "叫我以实玛利吧。"],
+  ["Some years ago—never mind how long precisely—having little or no money in my purse, and nothing particular to interest me on shore, I thought I would sail about a little and see the watery part of the world.", "几年前，别管具体多久了，我钱包里几乎没钱，岸上也没什么特别让我感兴趣的事，便想着出海航行一阵，去看看这世界上属于水的那一部分。"],
+  ["It is a way I have of driving off the spleen and regulating the circulation.", "这是我驱散郁闷、调理血液循环的一个法子。"],
+  ["Whenever I find myself growing grim about the mouth; whenever it is a damp, drizzly November in my soul; whenever I find myself involuntarily pausing before coffin warehouses, and bringing up the rear of every funeral I meet; and especially whenever my hypos get such an upper hand of me, that it requires a strong moral principle to prevent me from deliberately stepping into the street, and methodically knocking people’s hats off—then, I account it high time to get to sea as soon as I can.", "每当我发觉自己嘴角变得阴沉；每当我心里是一个潮湿、细雨蒙蒙的十一月；每当我发觉自己不由自主地在棺材铺门前停下脚步，遇上送葬的队伍就跟在最后；尤其是每当忧郁占了上风，非得靠很强的道德约束才能忍住不故意走上街头、一顶接一顶地把行人的帽子打掉，这时，我就认为该尽快出海了。"],
+  ["This is my substitute for pistol and ball.", "这就是我用来代替手枪和子弹的办法。"],
+  ["With a philosophical flourish Cato throws himself upon his sword; I quietly take to the ship.", "加图带着哲人的派头扑向自己的剑；我则悄悄上了船。"],
+  ["There is nothing surprising in this.", "这没什么可奇怪的。"],
+  ["If they but knew it, almost all men in their degree, some time or other, cherish very nearly the same feelings towards the ocean with me.", "只要他们意识到这一点就会明白，几乎所有人，程度不同，总会在某个时候，对大海怀有和我差不多的感情。"],
+  ["There now is your insular city of the Manhattoes, belted round by wharves as Indian isles by coral reefs—commerce surrounds it with her surf.", "瞧，那就是你们的岛城曼哈托，四周码头环绕，就像印度洋的岛屿被珊瑚礁环绕一样，商业用她的浪潮把它团团围住。"],
+  ["Right and left, the streets take you waterward.", "无论向左向右，街道都把你引向水边。"],
+  ["Its extreme downtown is the battery, where that noble mole is washed by waves, and cooled by breezes, which a few hours previous were out of sight of land.", "它的最南端是炮台，那道宏伟的防波堤受着海浪冲刷，被海风吹凉，而这些风浪几个小时前还在望不见陆地的海上。"],
+  ["Look at the crowds of water-gazers there.", "看看那儿一群群望着海水的人。"]
+];
+const PARAS = [[0,1,2,3,4,5,6,7],[8,9,10,11]];
+const DICT = {
+  spleen: ["/spliːn/", [["n.", "怒气，坏脾气；郁闷（旧时认为由脾脏产生）"], ["n.", "脾，脾脏"]]],
+  drizzly: ["/ˈdrɪzli/", [["adj.", "下毛毛雨的，细雨蒙蒙的"]]],
+  hypo: ["/ˈhaɪpoʊ/", [["n.", "〈旧〉忧郁症，hypochondria 的简称"], ["n.", "〈口〉皮下注射针"]]],
+  involuntarily: ["/ɪnˈvɑːlənteroli/", [["adv.", "不由自主地，不自觉地"], ["adv.", "非自愿地"]]],
+  methodically: ["/məˈθɑːdɪkli/", [["adv.", "有条不紊地，一板一眼地"]]],
+  flourish: ["/ˈflɜːrɪʃ/", [["n.", "夸张的动作，派头"], ["v.", "繁荣，兴旺；挥舞"], ["n.", "花饰，华彩"]]],
+  cherish: ["/ˈtʃerɪʃ/", [["v.", "怀有（感情、希望）"], ["v.", "珍爱，爱护"]]],
+  insular: ["/ˈɪnsələr/", [["adj.", "岛屿的，海岛的"], ["adj.", "狭隘的，与世隔绝的"]]],
+  wharf: ["/wɔːrf/", [["n.", "码头，停泊处"]]],
+  mole: ["/moʊl/", [["n.", "防波堤，突堤"], ["n.", "鼹鼠；痣"], ["n.", "内奸"]]],
+  precisely: ["/prɪˈsaɪsli/", [["adv.", "确切地，精确地"]]],
+  purse: ["/pɜːrs/", [["n.", "钱包"], ["n.", "〈美〉女式手提包"]]],
+  substitute: ["/ˈsʌbstɪtuːt/", [["n.", "替代品，替身"], ["v.", "代替"]]],
+  waterward: ["/ˈwɔːtərwərd/", [["adv.", "朝水边，向水面"]]],
+  grim: ["/ɡrɪm/", [["adj.", "严峻的，阴沉的"], ["adj.", "令人沮丧的"]]],
+  circulation: ["/ˌsɜːrkjəˈleɪʃn/", [["n.", "血液循环"], ["n.", "流通；发行量"]]],
+  account: ["/əˈkaʊnt/", [["v.", "认为，视为"], ["n.", "账户；描述，说明"]]],
+  degree: ["/dɪˈɡriː/", [["n.", "程度"], ["n.", "度数；学位"]]],
+  warehouse: ["/ˈwerhaʊs/", [["n.", "仓库，货栈"]]],
+  regulate: ["/ˈreɡjuleɪt/", [["v.", "调节，调整"], ["v.", "管理，控制"]]],
+  knock: ["/nɑːk/", [["v.", "敲，击；撞"], ["v.", "knock off：打掉，碰掉"]]],
+  pause: ["/pɔːz/", [["v.", "暂停，停顿"], ["n.", "停顿"]]],
+  grow: ["/ɡroʊ/", [["v.", "变得，逐渐变成"], ["v.", "生长，增长"]]],
+  drive: ["/draɪv/", [["v.", "驾驶"], ["v.", "drive off：赶走，驱散"]]],
+  deliberately: ["/dɪˈlɪbərətli/", [["adv.", "故意地"], ["adv.", "从容地，审慎地"]]],
+  coral: ["/ˈkɔːrəl/", [["n.", "珊瑚"], ["adj.", "珊瑚色的"]]],
+  commerce: ["/ˈkɑːmɜːrs/", [["n.", "商业，贸易"]]],
+  surf: ["/sɜːrf/", [["n.", "拍岸的浪花"], ["v.", "冲浪；浏览"]]],
+  breeze: ["/briːz/", [["n.", "微风，和风"]]]
+};
+const LEMMA = {
+  regulating: ["regulate", "现在分词"], knocking: ["knock", "现在分词"], pausing: ["pause", "现在分词"],
+  growing: ["grow", "现在分词"], driving: ["drive", "现在分词"], wharves: ["wharf", "复数"],
+  breezes: ["breeze", "复数"], warehouses: ["warehouse", "复数"], hypos: ["hypo", "复数"]
+};
+const RECENT = [
+  { t: "spleen", m: "怒气，坏脾气；郁闷", d: "21:28", w: true },
+  { t: "With a philosophical flourish Cato throws himself upon his sword…", m: "加图带着哲人的派头扑向自己的剑；我则悄悄上了船。", d: "21:12" },
+  { t: "drizzly", m: "下毛毛雨的，细雨蒙蒙的", d: "21:05", w: true },
+  { t: "insular", m: "岛屿的；狭隘的，与世隔绝的", d: "昨天", w: true },
+  { t: "methodically", m: "有条不紊地，一板一眼地", d: "昨天", w: true },
+  { t: "There now is your insular city of the Manhattoes…", m: "瞧，那就是你们的岛城曼哈托，四周码头环绕…", d: "10月29日" }
+];
+// 2026-10-31 用 jev-1.14.0 对这段文字的实测结果：难度为「是否需要查」的概率，义项由 Jev 选择题给出
+const SCAN_PARAS = [[2, 3], [8, 10]];
+const SCAN = [
+  { w: "hypos", lemma: "hypo", ph: "/ˈhaɪpoʊ/", m: "〈旧〉忧郁症", p: 0.81 },
+  { w: "spleen", ph: "/spliːn/", m: "郁闷，忧郁", ctx: true, p: 0.78 },
+  { w: "mole", ph: "/moʊl/", m: "防波堤", ctx: true, p: 0.77 },
+  { w: "insular", ph: "/ˈɪnsələr/", m: "岛屿的", p: 0.64 },
+  { w: "grim", ph: "/ɡrɪm/", m: "阴沉的，严峻的", p: 0.54 },
+  { w: "wharves", lemma: "wharf", ph: "/wɔːrf/", m: "码头", p: 0.54 },
+  { w: "methodically", ph: "/məˈθɑːdɪkli/", m: "有条不紊地", p: 0.53 },
+  { w: "drizzly", ph: "/ˈdrɪzli/", m: "细雨蒙蒙的", p: 0.48 },
+  { w: "involuntarily", ph: "/ɪnˈvɑːlənteroli/", m: "不由自主地", p: 0.39 },
+  { w: "circulation", ph: "/ˌsɜːrkjəˈleɪʃn/", m: "血液循环", p: 0.38 },
+  { w: "coffin", ph: "/ˈkɔːfɪn/", m: "棺材", p: 0.31 }
+];
+const known = new Set();
+const saved = new Set(["drizzly", "insular"]);
+
+const I = {
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  speak: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>',
+  star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/></svg>',
+  starOn: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h1"/></svg>',
+  swap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>'
+};
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+function bookHTML() {
+  const paras = PARAS.map(ids => "<p>" + ids.map(i => {
+    const parts = SENT[i][0].split(/([A-Za-z][A-Za-z’'-]*)/);
+    return `<span class="s" data-i="${i}">` + parts.map((p, k) => k % 2 ? `<span class="w">${p}</span>` : esc(p)).join("") + "</span>";
+  }).join(" ") + "</p>").join("");
+  return `<h2>CHAPTER 1. Loomings.</h2>${paras}`;
+}
+
+const DIMS = { outer: [425, 623], inner: [860, 608] };
+
+class Device {
+  constructor(kind) {
+    this.kind = kind;
+    this.vp = document.getElementById("v-" + kind);
+    this.bezel = document.getElementById("b-" + kind);
+    this.left = false;
+    this.sel = null;     // { type: "w"|"s", el, text, i }
+    this.homeView = "list";
+    this.tab = "saved";
+    const [w, h] = DIMS[kind];
+    const textH = kind === "outer" ? 513 : 486;
+    this.vp.innerHTML = `<div class="screen ${kind}" style="width:${w}px;height:${h}px">
+      <div class="status"><span>21:30</span><span>5G 82%</span></div>
+      <div class="reader">
+        <div class="r-top"><span>Moby-Dick</span><span>Herman Melville</span></div>
+        <div class="r-text" lang="en" style="height:${textH}px">${bookHTML()}</div>
+        <div class="r-foot">${kind === "outer" ? "<span>1%</span><span>3 / 412</span>" : "<span>3</span><span>4</span>"}</div>
+      </div>
+      <div class="tb" hidden><button data-a="copy">复制</button><button data-a="all">全选</button><button data-a="go" class="go">书边译</button></div>
+      <div class="card" hidden></div>
+      <div class="home" hidden></div>
+      <div class="scan" hidden></div>
+    </div>`;
+    this.screen = this.vp.firstElementChild;
+    this.text = this.screen.querySelector(".r-text");
+    this.tb = this.screen.querySelector(".tb");
+    this.card = this.screen.querySelector(".card");
+    this.home = this.screen.querySelector(".home");
+    this.scan = this.screen.querySelector(".scan");
+    this.showMore = false;
+    this.bind();
+  }
+
+  bind() {
+    let timer = null, longFired = false;
+    this.text.addEventListener("pointerdown", e => {
+      const w = e.target.closest(".w"); if (!w) return;
+      longFired = false;
+      timer = setTimeout(() => { longFired = true; this.selectSentence(w.closest(".s")); }, 450);
+    });
+    const cancel = () => clearTimeout(timer);
+    this.text.addEventListener("pointerup", cancel);
+    this.text.addEventListener("pointerleave", cancel);
+    this.text.addEventListener("contextmenu", e => e.preventDefault());
+    this.text.addEventListener("dblclick", e => { const w = e.target.closest(".w"); if (w) this.selectSentence(w.closest(".s")); });
+    this.screen.addEventListener("click", e => {
+      if (e.target.closest(".tb, .card, .home, .scan")) return;
+      const w = e.target.closest(".w");
+      if (w && !longFired && e.detail < 2) { this.selectWord(w); return; }
+      if (!w) this.clear();
+    });
+    this.tb.addEventListener("click", e => {
+      const a = e.target.closest("button")?.dataset.a;
+      if (a === "go") this.openCard();
+      else if (a === "all" && this.sel) this.selectSentence(this.sel.el.closest(".s"));
+      else if (a === "copy" && this.sel) { copy(this.sel.text); this.clear(); }
+    });
+    this.card.addEventListener("click", e => {
+      const b = e.target.closest("button"); if (!b) return;
+      const a = b.dataset.a;
+      if (a === "close") this.clear();
+      else if (a === "speak") speak(this.sel.text);
+      else if (a === "copy") { copy(this.sel.type === "w" ? (LEMMA[this.sel.text.toLowerCase()] || [this.sel.text])[0] : SENT[this.sel.i][1]); flash(b, "已复制"); }
+      else if (a === "star") { toggleSaved(this.sel.type === "w" ? (LEMMA[this.sel.text.toLowerCase()] || [this.sel.text.toLowerCase()])[0] : this.sel.text); }
+      else if (a === "swap") { this.left = !this.left; this.card.classList.toggle("left", this.left); devices.forEach(d => d.renderHome()); }
+    });
+    this.scan.addEventListener("click", e => {
+      const b = e.target.closest("button");
+      if (b && b.dataset.a === "more") { this.showMore = !this.showMore; this.renderScan(); return; }
+      if (b && b.dataset.a === "known") { known.add(b.dataset.w); devices.forEach(d => d.renderScan()); return; }
+      if (b && b.dataset.a === "star") { toggleSaved(b.dataset.w); return; }
+      const t = e.target.closest("[data-w]");
+      if (t) this.focusWord(t.dataset.w, !t.matches("li"));
+    });
+    this.home.addEventListener("click", e => {
+      const b = e.target.closest("button"); if (!b) return;
+      const a = b.dataset.a;
+      if (a === "settings") this.homeView = "settings";
+      else if (a === "back") this.homeView = "list";
+      else if (a === "tab") this.tab = b.dataset.v;
+      else if (a === "side") { devices.forEach(d => { d.left = b.dataset.v === "left"; d.card.classList.toggle("left", d.left); }); devices.forEach(d => d.renderHome()); return; }
+      this.renderHome();
+    });
+  }
+
+  clearMarks() { this.screen.querySelectorAll(".sel").forEach(n => n.classList.remove("sel")); }
+  clear() { this.clearMarks(); this.sel = null; this.tb.hidden = true; this.card.hidden = true; }
+
+  selectWord(w) {
+    this.clearMarks(); w.classList.add("sel");
+    this.sel = { type: "w", el: w, text: w.textContent.replace(/[’']s$/, "") };
+    this.card.hidden = true; this.showToolbar(w);
+  }
+  selectSentence(s) {
+    this.clearMarks(); s.classList.add("sel");
+    this.sel = { type: "s", el: s, text: SENT[+s.dataset.i][0], i: +s.dataset.i };
+    this.card.hidden = true; this.showToolbar(s);
+  }
+  showToolbar(el) {
+    const k = this.scale, sr = this.screen.getBoundingClientRect(), r = el.getClientRects()[0];
+    this.tb.hidden = false;
+    const tw = this.tb.offsetWidth, W = DIMS[this.kind][0];
+    let x = (r.left - sr.left) / k + (r.width / k) / 2 - tw / 2;
+    let y = (r.top - sr.top) / k - 50;
+    if (y < 32) y = (r.bottom - sr.top) / k + 10;
+    this.tb.style.left = Math.max(12, Math.min(W - tw - 12, x)) + "px";
+    this.tb.style.top = y + "px";
+  }
+
+  openCard() {
+    this.tb.hidden = true;
+    const s = this.sel, isW = s.type === "w", lower = s.text.toLowerCase();
+    const lem = isW ? LEMMA[lower] : null, key = lem ? lem[0] : lower;
+    const entry = isW ? DICT[key] : null;
+    const starred = saved.has(isW ? key : s.text);
+    const head = isW
+      ? `<div class="c-main"><div class="hw">${esc(key)}</div>${entry ? `<div class="ph">${entry[0]}${lem ? `　原文 ${esc(s.text)}，${lem[1]}` : ""}</div>` : ""}</div>`
+      : `<div class="c-main"><p class="src">${esc(s.text)}</p></div>`;
+    const body = isW
+      ? (entry ? `<ol class="defs">${entry[1].map(([p, m]) => `<li><span class="pos">${p}</span>${m}</li>`).join("")}</ol>`
+               : `<p class="empty">原型只放了这页的部分生词。正式版离线词典约 6 万词，常用词都能查到。</p>`)
+      : `<p class="zh">${SENT[s.i][1]}</p>`;
+    this.card.innerHTML = `${this.kind === "outer" ? '<div class="grab"></div>' : ""}
+      <div class="c-head">${head}<button class="x" data-a="close" aria-label="关闭">${I.x}</button></div>
+      <div class="c-body">${body}</div>
+      <div class="c-foot">
+        <div class="acts">
+          <button class="act" data-a="speak">${I.speak}朗读</button>
+          <button class="act" data-a="star" aria-pressed="${starred}">${starred ? I.starOn : I.star}${starred ? "已收藏" : "收藏"}</button>
+          <button class="act" data-a="copy">${I.copy}复制${isW ? "" : "译文"}</button>
+        </div>
+        ${this.kind === "inner" ? `<button class="act" data-a="swap" aria-label="换到另一侧">${I.swap}换边</button>` : ""}
+      </div>`;
+    this.card.classList.toggle("left", this.kind === "inner" && this.left);
+    this.card.hidden = false;
+  }
+
+  renderHome() {
+    if (this.home.hidden) return;
+    const items = this.tab === "recent" ? RECENT : RECENT.filter(r => saved.has(r.t)).concat(
+      [...saved].filter(t => !RECENT.some(r => r.t === t)).map(t => ({ t, m: DICT[t] ? DICT[t][1][0][1] : (SENT.find(x => x[0] === t) || ["", ""])[1], d: "刚刚" })));
+    const rows = items.length ? items.map(r => `<li><span class="t">${esc(r.t)}</span><span class="d">${r.d}</span><span class="m">${esc(r.m)}</span></li>`).join("")
+                              : `<li class="none">还没有收藏。翻译卡片上点「收藏」加入。</li>`;
+    const tabs = `<div class="h-tabs"><div class="mini-seg"><button data-a="tab" data-v="saved" aria-pressed="${this.tab === "saved"}">生词本</button><button data-a="tab" data-v="recent" aria-pressed="${this.tab === "recent"}">最近</button></div></div>`;
+    const list = `<div class="pane list">
+        <div class="h-head"><h3>书边译</h3>${this.kind === "outer" ? `<button class="icon-btn" data-a="settings" aria-label="设置">${I.gear}</button>` : ""}</div>
+        ${tabs}<ul class="rows">${rows}</ul></div>`;
+    const settings = `<div class="pane">
+        <div class="h-head">${this.kind === "outer" ? `<button class="icon-btn" data-a="back" aria-label="返回" style="margin-left:-12px">${I.back}</button>` : ""}<h3 style="flex:1">设置</h3></div>
+        <div class="form">
+          <div class="group">翻译服务</div>
+          <div class="row"><span>服务</span><span>DeepSeek</span></div>
+          <div class="row"><span>接口地址</span><span>https://api.deepseek.com/v1</span></div>
+          <div class="row"><span>模型</span><span>deepseek-chat</span></div>
+          <div class="row"><span>API Key</span><span>sk-••••••••3f2a</span></div>
+          <div class="group">显示</div>
+          <div class="row"><span>内屏卡片位置</span><span class="mini-seg"><button data-a="side" data-v="right" aria-pressed="${!this.left}">右下</button><button data-a="side" data-v="left" aria-pressed="${this.left}">左下</button></span></div>
+          <div class="row"><span>朗读口音</span><span>美式</span></div>
+        </div></div>`;
+    this.home.innerHTML = this.kind === "inner" ? list + settings : (this.homeView === "list" ? list : settings);
+  }
+
+  focusWord(w, fromPhoto) {
+    this.scan.querySelectorAll(".on").forEach(n => n.classList.remove("on"));
+    this.scan.querySelectorAll(`[data-w="${w}"]`).forEach(n => n.classList.add("on"));
+    const li = this.scan.querySelector(`li[data-w="${w}"]`);
+    if (fromPhoto && li) li.scrollIntoView({ block: "nearest" });
+  }
+
+  renderScan() {
+    if (this.scan.hidden) return;
+    const byWord = Object.fromEntries(SCAN.map(x => [x.w, x]));
+    const page = SCAN_PARAS.map(ids => "<p>" + ids.map(i => SENT[i][0].split(/([A-Za-z][A-Za-z’'-]*)/).map((p, k) =>
+      k % 2 && byWord[p] && byWord[p].p >= 0.5 ? `<span class="hw${known.has(p) ? " known" : ""}" data-w="${p}">${p}</span>` : esc(p)).join("")).join(" ") + "</p>").join("");
+    const row = x => {
+      const lem = x.lemma || x.w, star = saved.has(lem);
+      return `<li data-w="${x.w}"><span><span class="w-t">${lem}</span><span class="w-ph">${x.ph}${x.lemma ? `　原文 ${x.w}` : ""}</span></span>
+        <span class="w-acts"><button data-a="star" data-w="${lem}" aria-pressed="${star}" aria-label="收藏">${star ? I.starOn : I.star}</button><button data-a="known" data-w="${x.w}" aria-label="认识">${I.check}</button></span>
+        <span class="w-m">${x.m}${x.ctx ? '<span class="w-ctx">按上下文</span>' : ""}</span></li>`;
+    };
+    const hard = SCAN.filter(x => x.p >= 0.5 && !known.has(x.w)), maybe = SCAN.filter(x => x.p < 0.5 && !known.has(x.w));
+    this.scan.innerHTML = `<div class="s-head"><button class="icon-btn" aria-label="返回">${I.back}</button><h3>找生词</h3><button class="txt-btn">换一张</button></div>
+      <div class="s-body">
+        <div class="photo"><div class="page" lang="en">${page}</div></div>
+        <div class="s-list">
+          <div class="s-sum">${hard.length} 个生词，识别和判断共 1.4 秒</div>
+          <ul class="wl">${hard.map(row).join("")}${this.showMore ? '<li class="sub">可能认识</li>' + maybe.map(row).join("") : ""}</ul>
+          ${maybe.length ? `<button class="more" data-a="more">${this.showMore ? "收起" : `还有 ${maybe.length} 个可能认识的词`}</button>` : ""}
+        </div>
+      </div>`;
+  }
+
+  show(state) {
+    this.clear();
+    this.home.hidden = state !== "home";
+    this.scan.hidden = state !== "photo";
+    if (state === "photo") { this.showMore = false; this.renderScan(); return; }
+    if (state === "home") { this.homeView = "list"; this.renderHome(); return; }
+    const word = state === "word" ? "spleen" : "regulating";
+    this.selectWord([...this.text.querySelectorAll(".w")].find(w => w.textContent === word));
+    this.openCard();
+  }
+
+  fit(k) {
+    this.scale = k;
+    const [w, h] = DIMS[this.kind], r = 24 * k;
+    this.screen.style.transform = `scale(${k})`;
+    this.vp.style.width = w * k + "px"; this.vp.style.height = h * k + "px";
+    this.vp.style.borderRadius = r + "px";
+    this.bezel.style.borderRadius = r + 8 + "px";
+  }
+}
+
+function copy(text) { try { navigator.clipboard.writeText(text).catch(() => {}); } catch (e) {} }
+function speak(text) { try { const u = new SpeechSynthesisUtterance(text); u.lang = "en-US"; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) {} }
+function flash(b, msg) { const old = b.innerHTML; b.innerHTML = I.copy + msg; setTimeout(() => { b.innerHTML = old; }, 1200); }
+function toggleSaved(key) {
+  saved.has(key) ? saved.delete(key) : saved.add(key);
+  devices.forEach(d => { if (!d.card.hidden && d.sel) d.openCard(); d.renderHome(); d.renderScan(); });
+}
+
+const devices = [new Device("outer"), new Device("inner")];
+const stage = document.getElementById("stage");
+function layout() {
+  const avail = stage.clientWidth;
+  if (avail >= 1000) {
+    const k = Math.min(1, (avail - 32 - 32) / (425 + 860));
+    devices.forEach(d => d.fit(k));
+  } else {
+    devices.forEach(d => d.fit(Math.min(1, (avail - 16) / DIMS[d.kind][0])));
+  }
+  devices.forEach(d => { if (!d.tb.hidden && d.sel) d.showToolbar(d.sel.el); });
+}
+
+const STATES = { "st-word": "word", "st-lemma": "lemma", "st-photo": "photo", "st-home": "home" };
+Object.keys(STATES).forEach(id => document.getElementById(id).addEventListener("click", () => {
+  Object.keys(STATES).forEach(o => document.getElementById(o).setAttribute("aria-pressed", o === id));
+  devices.forEach(d => d.show(STATES[id]));
+}));
+
+layout();
+devices.forEach(d => d.show("word"));
+new ResizeObserver(layout).observe(stage);
+document.fonts && document.fonts.ready.then(layout);
+</script>
