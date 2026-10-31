@@ -270,7 +270,7 @@ CREATE TABLE form (
 
 ## 5. Jev 接口
 
-- `POST https://api.typesafe.ai/v1/systemone`
+- `POST https://opencode.ai/zen/v1/systemone`（OpenCode Zen 转发 Typesafe Jev；Go 套餐不含 Jev，按 Zen 余额计费，每次约 $0.00002）
 - 请求头：`Authorization: Bearer <key>`、`Content-Type: application/json`
 - 超时 20 秒，失败不重试，走离线兜底。
 
@@ -278,7 +278,7 @@ CREATE TABLE form (
 
 ```json
 {
-  "model": "jev-latest",
+  "model": "jev-1.13",
   "state": { "reader": "<设置里的读者水平>", "passage": "<段落或句子>" },
   "questions": {
     "hard_spleen": {
@@ -423,7 +423,7 @@ adb emu unfold
     - 字号只有 4 种。
     - 深色模式下各页面可读。
 
-**需要真机确认（不阻塞交付）**：国行系统上 ML Kit 能否离线识别；手机网络能否访问 `api.typesafe.ai`；实际 dp 尺寸和密度；HyperOS 上 `PROCESS_TEXT` 菜单是否显示「书边译」。
+**需要真机确认（不阻塞交付）**：国行系统上 ML Kit 能否离线识别；手机网络能否访问 `opencode.ai`；实际 dp 尺寸和密度；HyperOS 上 `PROCESS_TEXT` 菜单是否显示「书边译」。
 
 ## 10. 首版不做
 

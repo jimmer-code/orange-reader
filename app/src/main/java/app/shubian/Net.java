@@ -16,7 +16,7 @@ import java.nio.charset.StandardCharsets;
 final class Net {
     interface Sink { void chunk(String text); }
 
-    static final String JEV_URL = "https://api.typesafe.ai/v1/systemone";
+    static final String JEV_URL = "https://opencode.ai/zen/v1/systemone";
 
     private static HttpURLConnection open(String url, String key, String body) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
