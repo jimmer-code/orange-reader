@@ -71,3 +71,12 @@
 - 阅读页整句翻译两个入口：长按查词后不松手拖动扩选，松手翻译选区（选区用 CSS Highlight API 高亮，不改 DOM）；查词卡「翻译整句」翻译当前句。
 - 实测：模拟器内屏双页 Moby Dick 第 20 章，`adb input motionevent` 长按拖动两行，译文流式显示；「翻译整句」翻译 might 所在的整句。
 - 第二轮：拖选可以跨页（拖到左右边缘停住翻页）；翻译 prompt 参照沉浸式翻译 ebook/fiction 专家并加反翻译腔规则，带书名和段落上下文；连接复用和预热后，手机上 Jev 从 1.3 到 4.6 秒降到约 0.5 秒，翻译首字 1.2 到 1.5 秒；同句译文缓存。
+
+## M9 词、短语、句子统一选区（commit eab468c）
+- 阅读器按住流程改为状态机：130ms 按住反馈、360ms 锁定起始词，继续移动才进入选区；使用 `setPointerCapture()`，卡片延迟到松手后显示，避免拖动时被卡片层打断。
+- 选区按英文 token 吸附，松手后自动区分词、短语和句子；卡片提供“词 / 短语 / 句子”切换。词继续走离线词典和 Jev 本句义，短语走选区翻译并可保存，句子走整句翻译并可保存摘录。
+- 边缘选区保留 450ms 首次停留和 900ms 连续翻页，增加边缘遮罩和 250ms 过渡；选区跨同一章节分页时保持高亮。
+- 新增轻触觉反馈 Bridge；短语和句子分别保存到 `savedPhrases`、`savedQuotes`，不混入生词本。
+- 检查：`node --check app/src/main/assets/web/app.js && ./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；模拟器验证词卡、短语选区卡片、层级切换和流式翻译，无新增 WebView 异常。
+- 截图：`docs/screens/M9/`（Fold_DS_API36 内屏，浅色词卡和短语卡）。
+- 偏差：当前未做跨章节选区；句子层级使用起始词所在句作为上下文，跨句拖动仍保留在当前章节内，后续再扩展句间选择。

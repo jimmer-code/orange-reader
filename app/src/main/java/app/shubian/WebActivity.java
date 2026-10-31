@@ -15,6 +15,7 @@ import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import android.view.KeyEvent;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -325,6 +326,7 @@ public abstract class WebActivity extends Activity {
         @JavascriptInterface public void speak(String t) {
             if (ttsReady) tts.speak(t, TextToSpeech.QUEUE_FLUSH, null, "w"); else ttsPending = t;
         }
+        @JavascriptInterface public void haptic() { main.post(() -> web.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)); }
         @JavascriptInterface public String books() throws Exception { return Epub.list(WebActivity.this).toString(); }
         @JavascriptInterface public void deleteBook(String id) {
             main.post(() -> {

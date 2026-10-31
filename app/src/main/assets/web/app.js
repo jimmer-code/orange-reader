@@ -22,10 +22,13 @@ const st = {
   words: "all", query: "", pick: null, pickSrc: null, more: false, scan: null
 };
 const saved = new Map(kv.get("saved", []));      // lemma → { src, type, t, book, pos, sentence, sense, word }
+const savedPhrases = new Map(kv.get("savedPhrases", []));
+const savedQuotes = new Map(kv.get("savedQuotes", []));
 const recents = kv.get("recents", []);
 const known = new Set(kv.get("known", []));
 const bookmarks = kv.get("bookmarks", {});        // bookId → [{ ch, off }]
 const prog = kv.get("prog", {});                  // bookId → { ch, off, progress, status, opened }
+let activeTarget = null;
 let BOOKS = CARD ? [] : JSON.parse(N.books());
 const saveSaved = () => kv.set("saved", [...saved]);
 const saveProg = () => kv.set("prog", prog);
@@ -509,6 +512,10 @@ function toggleSave(lemma, src, btn, extra = {}) {
 }
 scr.addEventListener("click", e => {
   const s = e.target.closest("[data-say]"); if (s) { speak(s.dataset.say); return; }
+  const targetTab = e.target.closest("[data-target-tab]");
+  if (targetTab && activeTarget) { renderReadingTarget(activeTarget, targetTab.dataset.targetTab); return; }
+  const targetSave = e.target.closest("[data-target-save]");
+  if (targetSave && activeTarget) { toggleTargetSave(activeTarget, targetSave.dataset.targetSave, targetSave); return; }
   if (e.target.closest("[data-trs]") && R) { const hl = $(".w.hl", R.flow); translateInBook(st.lkSentence, rectIn(hl || R.lk), null, hl && blockText(hl)); return; }
   const ask = e.target.closest("[data-ask]");
   if (ask) { const out = ask.closest(".wd").querySelector("[data-ai-out]"); ask.closest(".acts").remove(); streamTr(ask.dataset.ask + (st.lkSentence ? "\n句子：" + st.lkSentence : ""), true, out); return; }
@@ -1066,6 +1073,7 @@ function wordAt(x, y) {
   if (x < rc.left - 8 || x > rc.right + 8 || y < rc.top - 8 || y > rc.bottom + 8) return null;
   return { node: n, a, b, range };
 }
+function sameWord(a, b) { return !!a && !!b && a.node === b.node && a.a === b.a && a.b === b.b; }
 function wrapWord(w) {
   const p = w.node.parentElement;
   if (p.classList.contains("w") && w.a === 0 && w.b === w.node.nodeValue.length) return p;
@@ -1091,35 +1099,65 @@ function sentenceOf(span) {
   return s;
 }
 function bindReader() {
-  const r = R.r; let down = null, timer = null, pressT = null, tapT = null, lastTap = null;
+  const r = R.r; let down = null, tapT = null, lastTap = null;
   r.addEventListener("contextmenu", e => e.preventDefault());
   r.addEventListener("pointerdown", e => {
     if (e.target.closest(".rd-ui, .rmenu, .lk, button")) return;
     const near = lastTap && Date.now() - lastTap.t < 300 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30;
     clearTimeout(tapT); tapT = null;
     const w = st.busy ? null : wordAt(e.clientX, e.clientY);
-    down = { x: e.clientX, y: e.clientY, long: false, dbl: near && !!w, w, span: null };
-    if (down.dbl) { lastTap = null; lookupInBook(wrapWord(w)); return; }
+    down = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, target: e.target, locked: false, selecting: false, cancelled: false,
+      dbl: near && !!w, w, span: null, anchor: null, sel: null, last: null, edge: 0, edgeT: null, active: true };
+    try { r.setPointerCapture(e.pointerId); } catch (ignored) { }
+    if (down.dbl) { lastTap = null; down.active = false; lookupInBook(wrapWord(w)); down = null; return; }
     if (w) {
-      pressT = setTimeout(() => { down.span = wrapWord(w); down.span.classList.add("press"); }, 130);
-      timer = setTimeout(() => { if (!down) return; down.long = true; const s = down.span = down.span || wrapWord(w); s.classList.remove("press"); lookupInBook(s); }, 420);
+      const d = down;
+      d.pressT = setTimeout(() => {
+        if (down !== d) return;
+        d.span = wrapWord(d.w); d.span.classList.add("press"); d.sentence = sentenceOf(d.span);
+      }, 130);
+      d.lockT = setTimeout(() => {
+        if (down !== d || !d.active || d.cancelled) return;
+        d.locked = true; d.state = "locked";
+        d.span = d.span || wrapWord(d.w); d.sentence = d.sentence || sentenceOf(d.span);
+        d.span.classList.remove("press"); d.span.classList.add("locked");
+        N.haptic?.(); N.warmNet();
+      }, 360);
     }
   });
-  const cancel = () => {
-    clearTimeout(timer); clearTimeout(pressT);
-    if (down?.span && !down.long) { down.span.classList.remove("press"); if (!down.span.classList.contains("hl")) unwrap(down.span); }
+  const cancelBeforeLock = d => {
+    clearTimeout(d.pressT); clearTimeout(d.lockT);
+    d.cancelled = true;
+    if (d.span && !d.span.classList.contains("hl")) { d.span.classList.remove("press", "locked"); unwrap(d.span); d.span = null; }
   };
   r.addEventListener("pointermove", e => {
-    if (down?.long) extendSel(down, e.clientX, e.clientY);
-    else if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) cancel();
+    if (!down || e.pointerId !== down.pointerId) return;
+    if (!down.locked) {
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10) cancelBeforeLock(down);
+      return;
+    }
+    const w2 = wordAt(e.clientX, e.clientY);
+    if (!down.selecting && w2 && !sameWord(down.w, w2)) {
+      if (down.span) { down.span.classList.remove("press", "locked"); unwrap(down.span); down.span = null; }
+      down.anchor = wordAt(down.x, down.y);
+      down.selecting = !!down.anchor;
+      down.state = down.selecting ? "selecting" : "locked";
+      r.classList.toggle("selection-mode", down.selecting);
+    }
+    if (down.selecting) extendSel(down, e.clientX, e.clientY);
   });
   r.addEventListener("pointerup", e => {
-    cancel(); if (!down) return; const d = down; down = null;
+    if (!down || e.pointerId !== down.pointerId) return;
+    const d = down; d.active = false; clearTimeout(d.pressT); clearTimeout(d.lockT); clearTimeout(d.edgeT);
+    down = null; r.classList.remove("selection-mode", "sel-edge-left", "sel-edge-right");
+    try { r.releasePointerCapture(e.pointerId); } catch (ignored) { }
+    if (d.span) d.span.classList.remove("press", "locked");
     if (d.sel) { finishSel(d); return; }
-    if (d.long || d.dbl) return;
+    if (d.locked && d.w && !d.cancelled) { lookupInBook(d.span || wrapWord(d.w)); return; }
+    if (d.dbl) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { turn(dx < 0 ? 1 : -1); return; }
-    const link = e.target.closest("a[data-ch]");
+    const link = d.target?.closest?.("a[data-ch]");
     if (link && R.flow.contains(link) && !R.lk.classList.contains("on") && !R.menu.classList.contains("on")) {
       if (link.classList.contains("nref")) openNote(link); else followLink(link);
       return;
@@ -1136,7 +1174,12 @@ function bindReader() {
     // 点在中间的单词上时稍等，留给双击查词
     if (d.w && x >= R.W * 0.28 && x <= R.W * 0.72 && !R.lk.classList.contains("on")) tapT = setTimeout(() => { tapT = null; act(); }, 260); else act();
   });
-  r.addEventListener("pointercancel", () => { cancel(); if (down) clearTimeout(down.edgeT); down = null; });
+  r.addEventListener("pointercancel", e => {
+    if (!down || e.pointerId !== down.pointerId) return;
+    clearTimeout(down.pressT); clearTimeout(down.lockT); clearTimeout(down.edgeT);
+    down.active = false; if (down.span) { down.span.classList.remove("press", "locked"); unwrap(down.span); }
+    down = null; r.classList.remove("selection-mode", "sel-edge-left", "sel-edge-right");
+  });
   r.addEventListener("click", e => {
     const b = e.target.closest("[data-r]"); if (!b) return;
     const a = b.dataset.r;
@@ -1162,16 +1205,11 @@ function toggleBookmark() {
 }
 
 /* ---------- 拖动选句与整句翻译 ---------- */
-// 长按出查词卡后不松手继续拖，选区从起始词扩展到手指下的词；拖到屏幕左右边缘停住会翻页（只在本章内）
+// 按住先锁定一个词，继续拖动时按词边界扩展选区；松手后再决定查词、翻译短语或翻译句子。
 function extendSel(d, x, y) {
   edgeWatch(d, x);
   let w2 = wordAt(x, y); if (!w2) return;
-  if (!d.anchor) {
-    if (d.span && d.span.contains(w2.node)) return;
-    hideLookup(); // 拆掉词外面的 span 后区间要重新取
-    w2 = wordAt(x, y); const w1 = wordAt(d.x, d.y); if (!w1 || !w2) return;
-    d.anchor = w1; N.warmNet();
-  }
+  if (!d.anchor) return;
   const w1 = d.anchor;
   const [a, b] = w1.range.compareBoundaryPoints(Range.START_TO_START, w2.range) <= 0 ? [w1, w2] : [w2, w1];
   const range = document.createRange();
@@ -1180,40 +1218,124 @@ function extendSel(d, x, y) {
   CSS.highlights.set("rsel", new Highlight(range));
 }
 function edgeWatch(d, x) {
+  if (!d.selecting || !d.anchor) return;
   const rx = x - R.r.getBoundingClientRect().left, edge = Math.max(28, R.W * 0.07);
-  const dir = !d.anchor ? 0 : rx > R.W - edge ? 1 : rx < edge ? -1 : 0;
+  const dir = rx > R.W - edge ? 1 : rx < edge ? -1 : 0;
   if (dir === d.edge) return;
   clearTimeout(d.edgeT); d.edge = dir;
+  R.r.classList.toggle("sel-edge-left", dir < 0); R.r.classList.toggle("sel-edge-right", dir > 0);
   if (!dir) return;
   const step = () => {
+    if (!d.active || !d.selecting || d.edge !== dir) return;
     const to = R.page + dir * (R.spread ? 2 : 1);
-    if (!R || to < 0 || to >= R.pages) return;
-    setPage(to);
+    if (!R || to < 0 || to >= R.pages) { toast(dir > 0 ? "已到本章末尾" : "已到本章开头"); return; }
+    turnForSelection(to);
     if (d.sel) CSS.highlights.set("rsel", new Highlight(d.sel));
     d.edgeT = setTimeout(step, 900);
   };
   d.edgeT = setTimeout(step, 450);
 }
+function turnForSelection(to) {
+  const before = R.flow.style.transform;
+  setPage(to);
+  const after = R.flow.style.transform;
+  if (!animOff() && before !== after) R.flow.animate([{ transform: before }, { transform: after }], {
+    duration: 250, easing: "cubic-bezier(.2,.8,.2,1)", fill: "none"
+  });
+}
+const TOKEN_RE = /[A-Za-z][A-Za-z’'\-]*/g;
+function tokensOf(text) { return text.match(TOKEN_RE) || []; }
+function textOffset(root, node, offset) {
+  if (!root || !node || (root !== node && !root.contains(node))) return 0;
+  const r = document.createRange(); r.selectNodeContents(root); r.setEnd(node, offset); return r.toString().length;
+}
+function rangeBlock(range) {
+  let n = range.startContainer; if (n.nodeType === 3) n = n.parentElement;
+  const block = n.closest("p, li, blockquote, td, h1, h2, h3, h4, div, section");
+  return block && block !== R.flow ? block : R.flow;
+}
+function sentenceForRange(range) {
+  const block = rangeBlock(range), text = block.textContent || "";
+  const start = textOffset(block, range.startContainer, range.startOffset);
+  const end = textOffset(block, range.endContainer, range.endOffset);
+  let a = Math.max(0, Math.min(start, text.length)), b = Math.max(a, Math.min(end, text.length));
+  while (a > 0 && !/[.?!]/.test(text[a - 1])) a--;
+  while (b < text.length && !/[.?!]/.test(text[b])) b++;
+  while (b < text.length && /[\s"'”’)\]]/.test(text[b])) b++;
+  return { text: text.slice(a, b).replace(/\s+/g, " ").trim(), start: a, end: b, selectedStart: start, selectedEnd: end };
+}
+function targetFromSelection(d) {
+  const raw = d.sel.toString().replace(/\s+/g, " ").trim(), tokens = tokensOf(raw);
+  const sentence = sentenceForRange(d.sel), sentenceText = d.sentence || sentence.text, sentenceTokens = tokensOf(sentenceText).length;
+  const complete = sentenceText === raw || /[.?!]["'”’)\]]*$/.test(raw);
+  const mostlySentence = sentenceTokens > 0 && tokens.length / sentenceTokens >= .82;
+  let type = tokens.length <= 1 ? "word" : (complete || mostlySentence ? "sentence" : "phrase");
+  const last = d.last || d.sel;
+  const focus = wordAt(...centerOf(last));
+  return { type, text: raw, phraseText: raw, fullText: raw, tokens, sentence: sentenceText, range: d.sel, lastRange: last, anchor: rectOfRange(last),
+    focusWord: focus ? focus.node.nodeValue.slice(focus.a, focus.b) : tokens[tokens.length - 1] || "" };
+}
 function finishSel(d) {
   clearTimeout(d.edgeT);
-  const text = d.sel.toString().replace(/\s+/g, " ").trim();
-  if (!/\s/.test(text)) { CSS.highlights.delete("rsel"); const w = wordAt(...centerOf(d.last)); if (w) lookupInBook(wrapWord(w)); return; }
-  const common = d.sel.commonAncestorContainer, block = (common.nodeType === 3 ? common.parentElement : common).closest("p, li, blockquote, td, h1, h2, h3, h4, div");
-  translateInBook(text.slice(0, 1500), rectOfRange(d.last), d.sel, block && block !== R.flow ? block.textContent : "");
+  const target = targetFromSelection(d);
+  if (target.type === "word") { CSS.highlights.delete("rsel"); const w = wordAt(...centerOf(d.last)); if (w) lookupInBook(wrapWord(w)); return; }
+  if (target.text.length > 1500) target.text = target.text.slice(0, 1500);
+  renderReadingTarget(target, target.type, target.anchor);
 }
 function blockText(span) { return (span.closest("p, li, blockquote, td, h1, h2, h3, h4, div") || R.flow).textContent; }
 function centerOf(range) { const c = range.getBoundingClientRect(); return [c.left + c.width / 2, c.top + c.height / 2]; }
 function rectOfRange(range) { const a = range.getBoundingClientRect(), s = scr.getBoundingClientRect(); return { x: a.left - s.left, y: a.top - s.top, w: a.width, h: a.height }; }
 function translateInBook(text, rect, range, ctx) {
-  hideLookup();
-  if (range) CSS.highlights.set("rsel", new Highlight(range));
-  showCard(`<div class="grab"></div><div class="wd"><div class="wd-h"><div class="grow"><div class="trx src">${esc(text)}</div></div>
-    <button class="x" data-close aria-label="关闭">${I.x}</button></div><div class="trx" id="rtr"></div></div>`, rect);
-  translateText(text, $("#rtr", R.lk), ctx && ctx.replace(/\s+/g, " ").trim());
+  const target = { type: "sentence", text: text.trim(), phraseText: text.trim(), fullText: text.trim(), tokens: tokensOf(text), sentence: ctx && ctx.replace(/\s+/g, " ").trim() || text.trim(), range, lastRange: null, anchor: rect, focusWord: st.lkWord || "" };
+  renderReadingTarget(target, "sentence", rect);
+}
+function targetKey(target, type) {
+  return [st.book?.id || "", R?.ch ?? "", target.sentence || target.text, target.text, type].join("|");
+}
+function toggleTargetSave(target, type, btn) {
+  const map = type === "phrase" ? savedPhrases : savedQuotes, key = targetKey(target, type);
+  const existed = map.has(key);
+  if (existed) {
+    map.delete(key); toast(type === "phrase" ? "已取消收藏短语" : "已取消保存摘录");
+  } else {
+    map.set(key, { text: target.text, sentence: target.sentence, book: st.book?.id || "", ch: R?.ch ?? 0, off: R ? anchorOffset() : 0, t: Date.now() });
+    toast(type === "phrase" ? "已收藏短语" : "已保存摘录");
+  }
+  kv.set(type === "phrase" ? "savedPhrases" : "savedQuotes", [...map]);
+  if (btn) {
+    const on = map.has(key), label = type === "phrase" ? "短语" : "摘录";
+    btn.className = "pill " + (on ? "done" : "alt"); btn.textContent = on ? `已保存${label}` : `保存${label}`;
+  }
+}
+function targetTabs(type) {
+  return `<div class="target-tabs" role="tablist" aria-label="阅读单位">${[["word", "词"], ["phrase", "短语"], ["sentence", "句子"]].map(([k, t]) => `<button data-target-tab="${k}" aria-selected="${type === k}">${t}</button>`).join("")}</div>`;
+}
+function renderReadingTarget(target, type, sr) {
+  if (!R) return;
+  const phraseText = target.phraseText || target.text, displayText = type === "sentence" ? (target.sentence || phraseText) : type === "word" ? (target.focusWord || tokensOf(phraseText)[0] || phraseText) : phraseText;
+  const resolved = Object.assign({}, target, { type, text: displayText, phraseText });
+  hideLookup({ preserveSelection: true });
+  activeTarget = resolved;
+  st.lkSentence = target.sentence || ""; st.lkWord = target.focusWord || "";
+  const anchor = sr || target.anchor || rectOfRange(target.lastRange || target.range);
+  let body;
+  if (type === "word") {
+    body = wordHTML(lookupWord(target.focusWord || target.tokens[0] || target.text), { sentence: target.sentence, close: true });
+  } else {
+    const map = type === "phrase" ? savedPhrases : savedQuotes, on = map.has(targetKey(target, type));
+    const label = type === "phrase" ? "短语" : "句子", action = on ? `已保存${label}` : `保存${label}`;
+    body = `<div class="target-body"><div class="target-kind">${label}</div><div class="trx src">${esc(target.text)}</div>
+      <div class="trx target-out" id="rt-out">${N.hasTr() ? "…" : "未配置整句翻译"}</div>
+      <div class="target-context">${type === "phrase" ? "参考所在句理解，但只翻译选中的短语。" : "参考书名和所在段落理解指代。"}</div>
+      <div class="acts"><button class="pill ${on ? "done" : "alt"}" data-target-save="${type}">${action}</button></div></div>`;
+  }
+  showCard(`<div class="grab"></div><div class="reading-target">${targetTabs(type)}${body}</div>`, anchor);
+  if (type !== "word" && N.hasTr()) translateText(target.text, $("#rt-out", R.lk), target.sentence);
 }
 
 /* ---------- 阅读中查词 ---------- */
 function lookupInBook(span) {
+  activeTarget = null;
   $$(".w.hl", R.flow).forEach(s => { if (s !== span) { s.classList.remove("hl"); unwrap(s); } });
   span.classList.add("hl");
   const info = lookupWord(span.textContent), lk = R.lk, sentence = sentenceOf(span);
@@ -1274,12 +1396,13 @@ async function goBack() {
   if (b.ch === R.ch) setPage(pageForOffset(b.off)); else await loadChapter(b.ch, { off: b.off });
 }
 function clearBack() { if (!R) return; R.back = null; $(".rd-back", R.r).hidden = true; }
-function hideLookup() {
+function hideLookup(opts = {}) {
   if (!R) return;
   R.lk.classList.remove("on");
-  CSS.highlights.delete("rsel");
+  if (!opts.preserveSelection) CSS.highlights.delete("rsel");
   $$(".w.hl", R.flow).forEach(s => { s.classList.remove("hl"); if (s.classList.contains("sv")) s.classList.remove("tmp"); else unwrap(s); });
   st.lkSentence = ""; st.lkWord = "";
+  activeTarget = null;
 }
 let formsKey = "", formsRe = null;
 function markSaved() {
