@@ -15,3 +15,10 @@
 - 检查：`./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
 - 截图：`docs/screens/M2/`；当前未运行模拟器，未生成设备截图。
 - 偏差：生词按来源的持久化字段尚未拆成独立 SQLite 表，当前用私有偏好保存词和释义；后续书库接入时迁移到统一数据层。
+
+## M3
+- 书库支持 ACTION_OPEN_DOCUMENT 选择 EPUB，复制到 `files/books/<sha1>.epub` 并持久化书名作者与阅读状态；重复导入复用同一 SHA-1 文件。
+- 加入阅读器页面、长按查词、阅读工具栏（目录、字号、主题、字体、书签入口）和基础进度显示；折叠配置通过主 Activity 的 configChanges 保留当前页面。
+- 检查：`./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
+- 截图：`docs/screens/M3/`；未运行模拟器，未生成设备截图。
+- 偏差：当前阅读器使用可读的原生文本占位页，尚未完成 ZIP 内 OPF/nav/XHTML 解析、WebView 资源拦截、真实多栏分页和双页模式；这些在后续迭代继续补齐。
