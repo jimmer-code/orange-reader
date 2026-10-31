@@ -296,8 +296,8 @@ public abstract class WebActivity extends Activity {
         return o;
     }
 
-    String jevKey() {
-        return BuildConfig.JEV_KEY;
+    String key() {
+        return BuildConfig.OPENCODE_KEY;
     }
 
     // ---------- bridge ----------
@@ -308,9 +308,8 @@ public abstract class WebActivity extends Activity {
         @JavascriptInterface public String formsOf(String lemmas) throws Exception { return Dict.get(WebActivity.this).formsOf(new JSONArray(lemmas)).toString(); }
         @JavascriptInterface public String kvGet(String k) { return store.get(k); }
         @JavascriptInterface public void kvSet(String k, String v) { store.set(k, v); }
-        @JavascriptInterface public boolean hasJev() { return !jevKey().isEmpty(); }
-        @JavascriptInterface public boolean hasTr() { return store.hasSecret("tr"); }
-        @JavascriptInterface public void setTrKey(String v) { store.setSecret("tr", v); }
+        @JavascriptInterface public boolean hasJev() { return !key().isEmpty(); }
+        @JavascriptInterface public boolean hasTr() { return !key().isEmpty(); }
         /** True while the engine is still starting; false only when no English voice is available. */
         @JavascriptInterface public boolean canSpeak() { return !ttsFailed; }
         @JavascriptInterface public void speak(String t) {
@@ -357,7 +356,7 @@ public abstract class WebActivity extends Activity {
         }
 
         @JavascriptInterface public void jev(int id, String payload) {
-            String key = jevKey();
+            String key = key();
             net.execute(() -> {
                 long t0 = System.currentTimeMillis();
                 try {
@@ -372,15 +371,12 @@ public abstract class WebActivity extends Activity {
         }
 
         @JavascriptInterface public void translate(int id, String text, boolean ask) {
-            String key = store.secret("tr");
-            JSONObject cfg;
-            try { cfg = new JSONObject(store.get("settings") == null ? "{}" : store.get("settings")); } catch (Exception e) { cfg = new JSONObject(); }
-            String base = cfg.optString("trUrl", "https://api.deepseek.com/v1"), model = cfg.optString("trModel", "deepseek-chat");
+            String key = key();
             String system = ask ? "用户在读英文书时遇到一个词典里查不到的词。用简体中文简要解释它的意思；给了句子时，说明它在句中的意思。"
                     : "把用户给出的英文译成自然的简体中文，只输出译文";
             net.execute(() -> {
                 try {
-                    String err = Net.chat(base, model, key, system, text, t -> emit("tr", jsonQuiet("id", String.valueOf(id), "delta", t)));
+                    String err = Net.chat(key, system, text, t -> emit("tr", jsonQuiet("id", String.valueOf(id), "delta", t)));
                     emit("tr", err == null ? jsonQuiet("id", String.valueOf(id), "done", "1") : jsonQuiet("id", String.valueOf(id), "error", err));
                 } catch (Exception e) {
                     emit("tr", jsonQuiet("id", String.valueOf(id), "error", "网络不可用"));

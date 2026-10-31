@@ -49,7 +49,7 @@
 - 截图：`docs/screens/M6/`（Fold_DS_API36 模拟器，外屏 1168×1712、内屏 2364×1672）。
 - 偏差：
   - 界面用 WebView 而不是原生 View，语言是 Java 而不是 Kotlin。原因：与原型像素和交互一致，且原型代码可直接复用。
-  - Jev Key 按用户要求在构建时从 `local.properties` 的 `jev.key`（OpenCode Go 账号的 Zen Key）注入 `BuildConfig`，会进入 APK，但不进 Git；设置页不再要求填写。
+  - OpenCode Key 按用户要求在构建时从 `local.properties` 的 `opencode.key`（OpenCode Go 账号）注入 `BuildConfig`，Jev 和翻译共用，会进入 APK，但不进 Git；设置页不再要求填写。
   - Jev 改走 OpenCode Zen（`opencode.ai/zen/v1/systemone`，模型 jev-1.13-free，限时免费），不再直连 Typesafe（对中国大陆返回 HTTP 451）。
   - 前缀查询按词频排序，`sp` 首屏是 speak、spend 等常用词，不再包含 spleen。
   - 「原色」「粗体」主题在系统深色模式下改用深色底。
@@ -65,3 +65,8 @@
 - 实测：Dune 合集（题记居中缩排、6,970 页，后台分页 3.5 秒）、The Secrets We Kept（章首花饰）、The Infinity Machine（尾注浮层，真机触摸事件测试）、The Status Game（Calibre 转换、目录链接跳转）、Moby Dick 内屏双页、Pride and Prejudice。
 - 检查：`./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL，release APK 19 MB。
 - 截图：`docs/screens/M7/`。
+
+## M8 整句翻译
+- 翻译和「问 AI」改走 OpenCode Go 的 DeepSeek V4.1 Flash，用内置的 OpenCode Key，设置页去掉接口地址、模型、Key 三项。请求带 `x-opencode-session`，关闭思考（首字从约 3 秒降到约 2 秒）。
+- 阅读页整句翻译两个入口：长按查词后不松手拖动扩选，松手翻译选区（选区用 CSS Highlight API 高亮，不改 DOM）；查词卡「翻译整句」翻译当前句。
+- 实测：模拟器内屏双页 Moby Dick 第 20 章，`adb input motionevent` 长按拖动两行，译文流式显示；「翻译整句」翻译 might 所在的整句。

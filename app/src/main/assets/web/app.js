@@ -11,7 +11,7 @@ const handlers = {};
 window.onNative = (type, data) => { const h = handlers[type]; if (h) h(data); };
 
 const DEFAULT_LEVEL = "Chinese native speaker reading English novels; passed CET-6 (about 6000 English words); comfortable with everyday and news vocabulary, weak on literary, archaic and nautical words.";
-const settings = Object.assign({ level: DEFAULT_LEVEL, trUrl: "https://api.deepseek.com/v1", trModel: "deepseek-chat", volume: false }, kv.get("settings", {}));
+const settings = Object.assign({ level: DEFAULT_LEVEL, volume: false }, kv.get("settings", {}));
 const RS = kv.get("reader", {});
 
 /* ===================== 状态 ===================== */
@@ -441,17 +441,18 @@ function wordHTML(info, opts) {
   const { lemma, form, word } = info;
   const isSaved = saved.has(lemma);
   const ctx = opts.sentence && N.hasJev() && senseItems(info).length > 1;
+  const trs = opts.sentence && N.hasTr() ? `<button class="pill alt" data-trs>翻译整句</button>` : "";
   const swap = opts.swap ? `<button class="txt-btn" data-swap style="font-size:14px">换边</button>` : "";
   const head = `<div class="wd-h"><div class="grow"><div class="hw">${esc(lemma)}</div>
       <div class="ph">${info.phonetic ? `<span>/${esc(info.phonetic)}/</span>` : ""}${N.canSpeak() ? `<button class="say" data-say="${esc(lemma)}" aria-label="朗读">${I.speak}</button>` : ""}${form ? `<span class="note">${esc(word)} 的${form}</span>` : ""}</div></div>
       ${swap}${opts.close ? `<button class="x" data-close aria-label="关闭">${I.x}</button>` : ""}</div>`;
   if (!info.found) return `<div class="wd">${head.replace(`<div class="hw">${esc(lemma)}</div>`, `<div class="hw">${esc(word || lemma)}</div>`)}
     <p style="font-size:17px;margin:0;color:var(--muted)">词典里没有 ${esc(word || lemma)}</p>
-    ${N.hasTr() ? `<div class="trx" data-ai-out></div><div class="acts"><button class="pill primary" data-ask="${esc(word || lemma)}">问 AI</button></div>` : ""}</div>`;
+    ${N.hasTr() ? `<div class="trx" data-ai-out></div><div class="acts"><button class="pill primary" data-ask="${esc(word || lemma)}">问 AI</button>${trs}</div>` : ""}</div>`;
   return `<div class="wd">${head}
     ${ctx ? `<div class="ctx loading"><span class="k">本句中</span><span class="v">…</span></div>` : ""}
     <ol class="senses">${info.lines.map(([p, m], i) => `<li data-i="${i}"><span class="pos">${esc(p)}</span><span>${esc(m)}</span></li>`).join("")}</ol>
-    <div class="acts"><button class="pill ${isSaved ? "done" : "primary"}" data-save="${esc(lemma)}">${isSaved ? I.starOn + "已在生词本" : I.star + "加入生词本"}</button></div></div>`;
+    <div class="acts"><button class="pill ${isSaved ? "done" : "primary"}" data-save="${esc(lemma)}">${isSaved ? I.starOn + "已在生词本" : I.star + "加入生词本"}</button>${trs}</div></div>`;
 }
 const ctxCache = new Map(kv.get("ctxcache", []));
 async function resolveCtx(root, info, sentence) {
@@ -499,6 +500,7 @@ function toggleSave(lemma, src, btn, extra = {}) {
 }
 scr.addEventListener("click", e => {
   const s = e.target.closest("[data-say]"); if (s) { speak(s.dataset.say); return; }
+  if (e.target.closest("[data-trs]") && R) { const hl = $(".w.hl", R.flow); translateInBook(st.lkSentence, rectIn(hl || R.lk)); return; }
   const ask = e.target.closest("[data-ask]");
   if (ask) { const out = ask.closest(".wd").querySelector("[data-ai-out]"); ask.closest(".acts").remove(); streamTr(ask.dataset.ask + (st.lkSentence ? "\n句子：" + st.lkSentence : ""), true, out); return; }
   const v = e.target.closest("[data-save]");
@@ -1091,16 +1093,20 @@ function bindReader() {
     if (down.dbl) { lastTap = null; lookupInBook(wrapWord(w)); return; }
     if (w) {
       pressT = setTimeout(() => { down.span = wrapWord(w); down.span.classList.add("press"); }, 130);
-      timer = setTimeout(() => { if (!down) return; down.long = true; const s = down.span || wrapWord(w); s.classList.remove("press"); lookupInBook(s); }, 420);
+      timer = setTimeout(() => { if (!down) return; down.long = true; const s = down.span = down.span || wrapWord(w); s.classList.remove("press"); lookupInBook(s); }, 420);
     }
   });
   const cancel = () => {
     clearTimeout(timer); clearTimeout(pressT);
     if (down?.span && !down.long) { down.span.classList.remove("press"); if (!down.span.classList.contains("hl")) unwrap(down.span); }
   };
-  r.addEventListener("pointermove", e => { if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) cancel(); });
+  r.addEventListener("pointermove", e => {
+    if (down?.long) extendSel(down, e.clientX, e.clientY);
+    else if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) cancel();
+  });
   r.addEventListener("pointerup", e => {
     cancel(); if (!down) return; const d = down; down = null;
+    if (d.sel) { finishSel(d.sel); return; }
     if (d.long || d.dbl) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { turn(dx < 0 ? 1 : -1); return; }
@@ -1144,6 +1150,36 @@ function toggleBookmark() {
   kv.set("bookmarks", bookmarks);
   setPage(R.page);
   toast(i >= 0 ? "已移除书签" : "已添加书签");
+}
+
+/* ---------- 拖动选句与整句翻译 ---------- */
+// 长按出查词卡后不松手继续拖，选区从起始词扩展到手指下的词
+function extendSel(d, x, y) {
+  let w2 = wordAt(x, y); if (!w2) return;
+  if (!d.sel) {
+    if (d.span && d.span.contains(w2.node)) return;
+    hideLookup(); w2 = wordAt(x, y); if (!w2) return; // hideLookup 拆掉了词外面的 span，区间要重新取
+  }
+  const w1 = wordAt(d.x, d.y); if (!w1) return;
+  const [a, b] = w1.range.compareBoundaryPoints(Range.START_TO_START, w2.range) <= 0 ? [w1, w2] : [w2, w1];
+  const range = document.createRange();
+  range.setStart(a.node, a.a); range.setEnd(b.node, b.b);
+  d.sel = range;
+  CSS.highlights.set("rsel", new Highlight(range));
+}
+function finishSel(range) {
+  const text = range.toString().replace(/\s+/g, " ").trim();
+  if (!/\s/.test(text)) { CSS.highlights.delete("rsel"); const w = wordAt(...centerOf(range)); if (w) lookupInBook(wrapWord(w)); return; }
+  translateInBook(text.slice(0, 1500), rectOfRange(range), range);
+}
+function centerOf(range) { const c = range.getBoundingClientRect(); return [c.left + c.width / 2, c.top + c.height / 2]; }
+function rectOfRange(range) { const a = range.getBoundingClientRect(), s = scr.getBoundingClientRect(); return { x: a.left - s.left, y: a.top - s.top, w: a.width, h: a.height }; }
+function translateInBook(text, rect, range) {
+  hideLookup();
+  if (range) CSS.highlights.set("rsel", new Highlight(range));
+  showCard(`<div class="grab"></div><div class="wd"><div class="wd-h"><div class="grow"><div class="trx src">${esc(text)}</div></div>
+    <button class="x" data-close aria-label="关闭">${I.x}</button></div><div class="trx" id="rtr"></div></div>`, rect);
+  streamTr(text, false, $("#rtr", R.lk));
 }
 
 /* ---------- 阅读中查词 ---------- */
@@ -1210,6 +1246,7 @@ function clearBack() { if (!R) return; R.back = null; $(".rd-back", R.r).hidden 
 function hideLookup() {
   if (!R) return;
   R.lk.classList.remove("on");
+  CSS.highlights.delete("rsel");
   $$(".w.hl", R.flow).forEach(s => { s.classList.remove("hl"); if (s.classList.contains("sv")) s.classList.remove("tmp"); else unwrap(s); });
   st.lkSentence = ""; st.lkWord = "";
 }
@@ -1305,7 +1342,6 @@ function openThemes() {
 /* ---------- 设置 ---------- */
 function openSettings() {
   if (st.kb) N.keyboard(false);
-  const hasTr = N.hasTr();
   openSheet(`<div class="sh-head"><h3>设置</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
     <div class="sh-body">
       <div class="opts" style="margin-top:0">
@@ -1313,18 +1349,13 @@ function openSettings() {
         <div class="opt"><span>音量键翻页</span><button class="switch" role="switch" data-st="volume" aria-checked="${!!settings.volume}" aria-label="音量键翻页"></button></div>
       </div>
       <label class="fl"><span>读者水平</span><textarea class="field" data-sf="level">${esc(settings.level)}</textarea></label>
-      <div class="st-sec">整句翻译</div>
-      <label class="fl"><span>接口地址</span><input class="field" data-sf="trUrl" value="${esc(settings.trUrl)}" autocapitalize="off" spellcheck="false"></label>
-      <label class="fl"><span>模型</span><input class="field" data-sf="trModel" value="${esc(settings.trModel)}" autocapitalize="off" spellcheck="false"></label>
-      <label class="fl"><span>Key</span><input class="field" type="password" data-sf="trKey" placeholder="${hasTr ? "已设置" : "未设置"}" autocomplete="off"></label>
       <div class="opts"><div class="opt"><span>「认识」的词</span><button class="txt-btn" data-st="clearknown">${known.size ? `清除 ${known.size} 个` : "没有记录"}</button></div></div>
       <div class="about">书边译 ${esc(N.version())}<br>词典 ECDICT，MIT 许可<br>字体 Literata、Source Serif 4，SIL Open Font License</div>
     </div>`, "", () => {});
 }
 sheet.addEventListener("change", e => {
   const f = e.target.closest("[data-sf]"); if (!f) return;
-  if (f.dataset.sf === "trKey") { N.setTrKey(f.value); f.value = ""; f.placeholder = f.value || N.hasTr() ? "已设置" : "未设置"; toast("已保存"); return; }
-  settings[f.dataset.sf] = f.value.trim() || ({ level: DEFAULT_LEVEL, trUrl: "https://api.deepseek.com/v1", trModel: "deepseek-chat" })[f.dataset.sf];
+  settings[f.dataset.sf] = f.value.trim() || DEFAULT_LEVEL;
   kv.set("settings", settings);
 });
 

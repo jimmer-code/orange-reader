@@ -199,8 +199,10 @@ svg { display: block; }
 .acts { display: flex; gap: 10px; }
 .pill { height: 44px; padding: 0 18px; border-radius: 22px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 17px; font-weight: 600; transition: background-color 250ms ease-out, color 250ms ease-out; }
 .pill svg { width: 18px; height: 18px; }
+.pill { white-space: nowrap; }
 .pill.primary { background: var(--accent); color: var(--on-accent); flex: 1; }
 .pill.done { background: var(--fill); color: var(--accent-text); flex: 1; }
+.pill.alt { background: var(--fill); color: var(--text); flex: none; }
 .pane .wd { padding: 28px 32px; max-width: 520px; }
 .pane-empty { height: 100%; display: grid; place-items: center; color: var(--faint); text-align: center; padding: 32px; }
 
@@ -247,6 +249,7 @@ svg { display: block; }
 .w { border-radius: 2px; transition: background-color 200ms ease-out; }
 .w.press { background: color-mix(in srgb, var(--r-hl) 60%, transparent); }
 .w.hl { background: var(--r-hl); box-shadow: 0 0 0 2px var(--r-hl); }
+::highlight(rsel) { background-color: var(--r-hl); }
 .w.sv { text-decoration: underline dotted #f76b15cc; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
 .rd-run { position: absolute; font-family: var(--f-ui); font-size: 12px; font-weight: 400; color: var(--r-muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; font-variant-numeric: tabular-nums; transition: opacity 250ms ease-out; }
 .rd-spine { position: absolute; top: 0; bottom: 0; left: 50%; width: 90px; margin-left: -45px; pointer-events: none; background: linear-gradient(90deg, transparent, var(--r-shade) 50%, transparent); opacity: .35; }

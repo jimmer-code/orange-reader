@@ -17,6 +17,10 @@ final class Net {
     interface Sink { void chunk(String text); }
 
     static final String JEV_URL = "https://opencode.ai/zen/v1/systemone";
+    static final String CHAT_URL = "https://opencode.ai/zen/go/v1/chat/completions";
+    static final String CHAT_MODEL = "deepseek-v4.1-flash";
+    // OpenCode Go rejects chat requests without a session id; one per app run is enough for routing.
+    private static final String SESSION = "shubian-" + java.util.UUID.randomUUID();
 
     private static HttpURLConnection open(String url, String key, String body) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
@@ -26,6 +30,7 @@ final class Net {
         c.setDoOutput(true);
         c.setRequestProperty("Authorization", "Bearer " + key);
         c.setRequestProperty("Content-Type", "application/json");
+        c.setRequestProperty("x-opencode-session", SESSION);
         try (OutputStream o = c.getOutputStream()) { o.write(body.getBytes(StandardCharsets.UTF_8)); }
         return c;
     }
@@ -46,12 +51,13 @@ final class Net {
     }
 
     /** OpenAI-compatible streaming chat. Returns null on success or an error message. */
-    static String chat(String base, String model, String key, String system, String user, Sink sink) throws Exception {
-        JSONObject req = new JSONObject().put("model", model).put("stream", true).put("messages", new JSONArray()
+    static String chat(String key, String system, String user, Sink sink) throws Exception {
+        // Thinking off: reasoning adds 1-3 s before the first translated character.
+        JSONObject req = new JSONObject().put("model", CHAT_MODEL).put("stream", true)
+                .put("thinking", new JSONObject().put("type", "disabled")).put("messages", new JSONArray()
                 .put(new JSONObject().put("role", "system").put("content", system))
                 .put(new JSONObject().put("role", "user").put("content", user)));
-        String url = base.replaceAll("/+$", "") + "/chat/completions";
-        HttpURLConnection c = open(url, key, req.toString());
+        HttpURLConnection c = open(CHAT_URL, key, req.toString());
         int code = c.getResponseCode();
         if (code >= 400) {
             String[] r = {String.valueOf(code)};
