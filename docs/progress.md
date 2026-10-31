@@ -53,3 +53,15 @@
   - Typesafe 对中国大陆返回 HTTP 451，手机需代理或 VPN 才能用 Jev；否则走离线词频判断。
   - 前缀查询按词频排序，`sp` 首屏是 speak、spend 等常用词，不再包含 spleen。
   - 「原色」「粗体」主题在系统深色模式下改用深色底。
+
+## M7 阅读排版
+参照 ReadiumCSS（Readium 阅读器的样式规范）、Apple Books、Kindle 和 KOReader 的做法改进阅读页。
+- 保留原书样式：加载原书的 CSS，去掉与阅读设置冲突的属性（字体、颜色、背景、行高、定位、高度、分栏），px/pt 字号换成 em，body 上的字号和边距不用；`justify`/`left` 对齐改由阅读设置决定，居中和右对齐保留；纸书分页 `page-break-*` 换成分栏。每个样式表只作用于引用它的章节（合集各卷样式不同）。内置默认样式放在 `:where()` 里，原书写了的属性以原书为准。
+- 排版：用户行距强制作用于正文段落；`hyphenate-limit-chars`、`text-wrap: pretty`、标题 `balance`、孤行寡行各 2 行、上下标不撑开行距；单页时行长上限约 34em。
+- 新设置：行距（紧凑、适中、宽松）、页边距（窄、中、宽）、两端对齐、原书排版。关掉原书排版回到 M6 的统一样式。
+- 图片：只有一张图的页（封面、插图）单独占一页并垂直居中；线稿（花饰、地图）浅色主题融进底色，深色主题反相，照片压暗。
+- 链接与注释：书内链接可点击跳转，跳转后底部出现「返回原处」（翻 3 页后消失）；注释链接（`doc-noteref`、`epub:type="noteref"`、上标数字）点开浮层，不离开当前页；`aside` 脚注在正文中隐藏。
+- 目录去掉 Gutenberg 写入的纸书页码条目（如 `{32}`）。
+- 实测：Dune 合集（题记居中缩排、6,970 页，后台分页 3.5 秒）、The Secrets We Kept（章首花饰）、The Infinity Machine（尾注浮层，真机触摸事件测试）、The Status Game（Calibre 转换、目录链接跳转）、Moby Dick 内屏双页、Pride and Prejudice。
+- 检查：`./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL，release APK 19 MB。
+- 截图：`docs/screens/M7/`。

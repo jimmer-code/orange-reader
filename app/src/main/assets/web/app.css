@@ -240,14 +240,10 @@ svg { display: block; }
 .reader[data-font="source"] { --r-font: "Source Serif 4", Georgia, serif; }
 .reader[data-font="sans"] { --r-font: var(--f-ui); }
 .rd-clip { position: absolute; overflow: hidden; }
-.rd-flow { height: 100%; column-fill: auto; font-family: var(--r-font); font-size: var(--r-size); font-weight: var(--r-weight); line-height: 1.62; text-align: justify; hyphens: auto; -webkit-hyphens: auto; color: var(--r-fg); }
-.rd-flow p { margin: 0; }
-.rd-flow p + p { text-indent: 1.5em; }
-.rd-flow .ch + .ch { break-before: column; }
+.rd-flow { height: 100%; column-fill: auto; font-family: var(--r-font); font-size: var(--r-size); font-weight: var(--r-weight); line-height: var(--r-lh); text-align: var(--r-align); hyphens: var(--r-hyph); -webkit-hyphens: var(--r-hyph); hyphenate-limit-chars: 6 3 2; text-wrap: pretty; widows: 2; orphans: 2; font-kerning: normal; font-variant-ligatures: common-ligatures; text-rendering: optimizeLegibility; color: var(--r-fg); }
 .ch-h { padding: 18% 0 2.2em; text-align: center; break-inside: avoid; }
 .ch-n { font-family: var(--f-ui); font-size: 12px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--r-muted); }
 .ch-h h2 { font-size: 28px; font-weight: 400; font-style: italic; margin: .35em 0 0; line-height: 1.2; }
-.rd-flow .ch > p:first-of-type::first-letter { float: left; font-size: 3.15em; line-height: .86; padding: .06em .08em 0 0; font-weight: 600; }
 .w { border-radius: 2px; transition: background-color 200ms ease-out; }
 .w.press { background: color-mix(in srgb, var(--r-hl) 60%, transparent); }
 .w.hl { background: var(--r-hl); box-shadow: 0 0 0 2px var(--r-hl); }
@@ -395,29 +391,60 @@ textarea.field { height: auto; min-height: 96px; padding: 10px 14px; line-height
 .st-sec { font-size: 17px; font-weight: 700; margin: 18px 0 2px; }
 .about { color: var(--faint); font-size: 12px; margin-top: 18px; line-height: 1.6; }
 
-/* 阅读器：真实 ePub 内容 */
-.reader { --r-top: 60px; }
+/* 阅读器：真实 ePub 内容。默认样式包在 :where() 里，优先级为 0，原书样式写了的属性以原书为准；
+   字体、字号、行距、颜色、对齐由阅读设置决定（原书里这些属性在加载时已去掉） */
+.reader { --r-top: 60px; --r-lh: 1.62; --r-align: justify; --r-hyph: auto; --r-link: #cc4e00; }
+.reader:is([data-theme="quiet"], [data-theme="focus"]) { --r-link: #ff801f; }
+@media (prefers-color-scheme: dark) { .reader:is([data-theme="original"], [data-theme="bold"]) { --r-link: #ff801f; } }
 .rd-topbar { top: calc(var(--sat) + 6px); }
 .outer .lk.top { padding-top: calc(var(--sat) + 12px); }
 .outer .lk { padding-bottom: calc(22px + var(--sab)); }
 .rd-clip.measure { visibility: hidden; pointer-events: none; z-index: -1; }
 .rd-flow * { max-width: 100%; }
-.rd-flow h1, .rd-flow h2, .rd-flow h3, .rd-flow h4 { font-weight: 400; font-style: italic; text-align: center; font-size: 1.45em; line-height: 1.22; margin: 0 0 1.3em; text-indent: 0; hyphens: manual; -webkit-hyphens: manual; break-after: avoid; }
-.rd-flow h3, .rd-flow h4 { font-size: 1.1em; }
+.rd-flow :is(p, li, dd, blockquote, div) { line-height: var(--r-lh) !important; }
+.rd-flow :is(h1, h2, h3, h4, h5, h6) { break-after: avoid; hyphens: manual; -webkit-hyphens: manual; text-wrap: balance; }
+:where(.rd-flow) :is(h1, h2, h3, h4, h5, h6) { font-weight: 400; text-align: center; font-size: 1.45em; line-height: 1.22; margin: 0 0 1.3em; text-indent: 0; }
+:where(.rd-flow) :is(h3, h4, h5, h6) { font-size: 1.1em; }
+.reader[data-pub="0"] .rd-flow :is(h1, h2, h3, h4) { font-style: italic; }
 .rd-flow .brk { break-before: column; padding-top: 14%; }
-.rd-flow .ch > h1:first-child, .rd-flow .ch > h2:first-child, .rd-flow .ch > h3:first-child,
-.rd-flow .ch > div:first-child > h1:first-child, .rd-flow .ch > div:first-child > h2:first-child, .rd-flow .ch > div:first-child > h3:first-child { padding-top: 14%; }
-.rd-flow h1 + p, .rd-flow h2 + p, .rd-flow h3 + p, .rd-flow h4 + p { text-indent: 0; }
-.rd-flow h1 + p::first-letter, .rd-flow h2 + p::first-letter { float: left; font-size: 3.15em; line-height: .86; padding: .06em .08em 0 0; font-weight: 600; }
-.rd-flow p { margin: 0; }
-.rd-flow div + p, .rd-flow blockquote + p { text-indent: 0; }
-.rd-flow blockquote { margin: .8em 1.4em; }
-.rd-flow img, .rd-flow svg { display: block; max-width: 100%; max-height: var(--clip-h, 70vh); height: auto; margin: 1em auto; object-fit: contain; break-inside: avoid; }
+.rd-flow .rd-lead { break-before: auto !important; }
+:where(.rd-flow .bk-body) > :is(h1, h2, h3):first-child, :where(.rd-flow .bk-body) > div:first-child > :is(h1, h2, h3):first-child { padding-top: 14%; }
+:where(.rd-flow) p { margin: 0; }
+:where(.rd-flow) p + p { text-indent: 1.5em; }
+:where(.rd-flow) :is(h1, h2, h3, h4, h5, h6, div, blockquote, figure, table, ul, ol, hr) + p { text-indent: 0; }
+.reader[data-dropcap] .rd-flow :is(h1, h2) + p::first-letter { float: left; font-size: 3.15em; line-height: .86; padding: .06em .08em 0 0; font-weight: 600; }
+:where(.rd-flow) blockquote { margin: .8em 1.4em; }
+:where(.rd-flow) :is(img, svg) { display: block; margin: 1em auto; }
+.rd-flow img, .rd-flow svg { max-width: 100%; max-height: var(--clip-h, 70vh); height: auto; object-fit: contain; break-inside: avoid; }
+.rd-flow sup, .rd-flow sub { line-height: 0; }
 .rd-flow a { color: inherit; text-decoration: none; }
-.rd-flow pre { white-space: pre-wrap; font-family: inherit; font-size: .9em; }
-.rd-flow table { border-collapse: collapse; font-size: .9em; }
-.rd-flow hr { border: 0; border-top: 0.5px solid var(--r-muted); margin: 1.4em 20%; }
-.rd-flow ul, .rd-flow ol { padding-left: 1.4em; }
+.rd-flow a.nref { color: var(--r-link); padding: 0 .15em; }
+.rd-flow .fn-aside { display: none; }
+:where(.rd-flow) pre { white-space: pre-wrap; font-size: .9em; }
+:where(.rd-flow) table { border-collapse: collapse; font-size: .9em; }
+:where(.rd-flow) hr { border: 0; border-top: 0.5px solid var(--r-muted); margin: 1.4em 20%; }
+:where(.rd-flow) :is(ul, ol) { padding-left: 1.4em; }
+/* 只有一张图的页：图片单独占一页，垂直居中 */
+.rd-flow .bk-body.solo { height: calc(var(--page-h) - 2px); display: flex; flex-direction: column; justify-content: center; align-items: center; margin: 0; padding: 0; break-after: column; }
+.rd-flow .solo :is(img, svg) { max-height: calc(var(--page-h) - 8px); margin: 0 auto; }
+/* 线稿图融进底色；深色主题里线稿反相、照片压暗 */
+/* 书页容器带变换会形成独立的混合层，正文容器自己铺上底色，线稿才能和底色混合 */
+.rd-flow > .ch { background: var(--r-bg); }
+.rd-flow img.im-line { mix-blend-mode: multiply; }
+.reader:is([data-theme="quiet"], [data-theme="focus"]) .rd-flow img.im-line { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; }
+.reader:is([data-theme="quiet"], [data-theme="focus"]) .rd-flow img.im-photo { filter: brightness(.85); }
+@media (prefers-color-scheme: dark) {
+  .reader:is([data-theme="original"], [data-theme="bold"]) .rd-flow img.im-line { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; }
+  .reader:is([data-theme="original"], [data-theme="bold"]) .rd-flow img.im-photo { filter: brightness(.85); }
+}
+.rd-back { position: absolute; z-index: 6; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 8px 16px; border-radius: 18px; background: var(--r-chip); color: var(--r-fg); font-family: var(--f-ui); font-size: 14px; box-shadow: 0 1px 3px #0000001f; }
+.lk .note { font-family: var(--r-font); font-size: 17px; line-height: 1.55; color: var(--text); padding: 2px 0 4px; overflow-wrap: anywhere; }
+.lk .note li { display: block; }
+.lk .note * { color: inherit; }
+.lk .note :is(p, li, div) { margin: 0 0 .6em; }
+.lk .note :is(ol, ul) { margin: 0; padding: 0; list-style: none; }
+.lk .note img { max-width: 100%; }
+.lk .note a { color: inherit; text-decoration: none; }
 
 /* 拍照找生词：系统相机拍完后直接进结果页 */
 .photo { position: absolute; transform-origin: 0 0; box-shadow: var(--shadow-1); border-radius: 2px; overflow: hidden; }

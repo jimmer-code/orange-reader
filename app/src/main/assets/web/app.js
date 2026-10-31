@@ -18,6 +18,7 @@ const RS = kv.get("reader", {});
 const st = {
   screen: "outer", k: 1, tab: "physical", filter: "all", book: null, busy: false, kb: false,
   theme: RS.theme || "original", font: RS.font || "literata", size: RS.size || 18, turn: RS.turn || "curl", spread: RS.spread !== false,
+  lh: RS.lh || "m", margin: RS.margin || "m", justify: RS.justify !== false, pub: RS.pub !== false,
   words: "all", query: "", pick: null, pickSrc: null, more: false, scan: null
 };
 const saved = new Map(kv.get("saved", []));      // lemma → { src, type, t, book, pos, sentence, sense, word }
@@ -28,7 +29,15 @@ const prog = kv.get("prog", {});                  // bookId → { ch, off, progr
 let BOOKS = CARD ? [] : JSON.parse(N.books());
 const saveSaved = () => kv.set("saved", [...saved]);
 const saveProg = () => kv.set("prog", prog);
-const saveReaderPrefs = () => kv.set("reader", { theme: st.theme, font: st.font, size: st.size, turn: st.turn, spread: st.spread });
+const saveReaderPrefs = () => kv.set("reader", { theme: st.theme, font: st.font, size: st.size, turn: st.turn, spread: st.spread, lh: st.lh, margin: st.margin, justify: st.justify, pub: st.pub });
+const LH = { s: 1.45, m: 1.62, l: 1.8 };
+function applyTypo(r) {
+  r.style.setProperty("--r-size", st.size + "px");
+  r.style.setProperty("--r-lh", LH[st.lh]);
+  r.style.setProperty("--r-align", st.justify ? "justify" : "start");
+  r.style.setProperty("--r-hyph", st.justify ? "auto" : "manual");
+  r.dataset.pub = st.pub ? "1" : "0";
+}
 const progOf = id => prog[id] || (prog[id] = { ch: 0, off: 0, progress: 0, status: "new" });
 
 /* ===================== 工具 ===================== */
@@ -504,16 +513,80 @@ scr.addEventListener("click", e => {
 
 /* ===================== 阅读器 ===================== */
 let R = null;
-const chCache = new Map();
 const bookUrl = (id, path) => `/book/${id}/${path.split("/").map(encodeURIComponent).join("/")}`;
-// 出版社样式整体丢弃，只保留图片的百分比宽度（如章首小花饰），否则小图会被拉满整栏
-const cssCache = new Map();
+/* ---------- 原书样式：参照 ReadiumCSS 的做法，保留原书的版式（对齐、缩进、小型大写、间距、图片宽度），
+   去掉与阅读设置冲突的属性（字体、字号基准、颜色、行高、页面定位），选择器限定在书页内 ---------- */
+const FS_KW = { "xx-small": ".6em", "x-small": ".75em", small: ".89em", medium: "1em", large: "1.2em", "x-large": "1.5em", "xx-large": "2em" };
+const DROP_PROP = /^(color|background|position|top|left|right|bottom|inset|z-index|overflow|height|min-height|max-height|columns?|column-|widows|orphans|hyphens|font-family|transform|filter|box-shadow|text-shadow|outline|cursor|pointer-events|user-select|transition|animation|mix-blend|-webkit-|-epub-|adobe-)/;
+function cleanDecl(s, root, isP) {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const p = s.item(i); let v = s.getPropertyValue(p);
+    if (p === "font-family") { if (/mono|courier|consol/i.test(v)) out += "font-family:monospace;"; continue; }
+    if (DROP_PROP.test(p) || p.endsWith("-color")) continue;
+    if (root && /^(font-size|line-height|margin|padding|text-indent|width|max-width)/.test(p)) continue;
+    if (p === "font-size") v = FS_KW[v] || v.replace(/^([\d.]+)(px|pt)$/, (_, n, u) => +(n / (u === "pt" ? 12 : 16)).toFixed(3) + "em");
+    if (p === "text-align" && /^(justify|left|start|-webkit-auto|auto)$/.test(v)) continue;
+    if (/^break-(before|after)$/.test(p) && /^(page|always|left|right|recto|verso)$/.test(v)) v = "column";
+    out += `${p}:${v};`;
+  }
+  // 段落用了段间距却没写缩进时，去掉默认的首行缩进：段间距和缩进只用一种
+  if (isP && !s.textIndent && /^margin-(top|bottom):(?!0(px|em|rem|%)?$)/m.test(out.replace(/;/g, "\n"))) out += "text-indent:0;";
+  return out;
+}
+function splitSel(sel) {
+  const out = []; let d = 0, cur = "";
+  for (const c of sel) { if (c === "(" || c === "[") d++; else if (c === ")" || c === "]") d--; if (c === "," && !d) { out.push(cur); cur = ""; } else cur += c; }
+  return out.concat(cur).map(s => s.trim()).filter(Boolean);
+}
+// 每个样式表只作用于引用它的章节（合集里各卷的样式表互不相同）：章节容器带上样式表的类名 sid
+function scopeRules(rules, out, sid) {
+  for (const r of rules) {
+    if (r instanceof CSSStyleRule) {
+      let root = true;
+      const sels = splitSel(r.selectorText).map(s => {
+        s = s.replace(/^(html|:root)\b\s*/i, "").replace(/(^|[\s>+~])body\b/gi, "$1.bk-body");
+        if (!/^\.bk-body(\.[\w-]+|#[\w-]+)*$/.test(s || ".bk-body")) root = false;
+        s = s || ".bk-body";
+        return s.startsWith(".bk-body") ? `.rd-flow .${sid}${s.slice(8)}` : `.rd-flow .${sid} ${s}`;
+      });
+      const decl = cleanDecl(r.style, root, /(^|[\s>+~])p(\.[\w-]+)*$/i.test(r.selectorText.split(",").pop().trim()));
+      if (decl) out.push(`${sels.join(",")}{${decl}}`);
+    } else if (r instanceof CSSMediaRule) { if (matchMedia(r.conditionText).matches) scopeRules(r.cssRules, out, sid); }
+    else if (r instanceof CSSSupportsRule) { if (CSS.supports(r.conditionText)) scopeRules(r.cssRules, out, sid); }
+  }
+  return out;
+}
+function scopeCss(text, sid) {
+  const c = new CSSStyleSheet();
+  try { c.replaceSync(text); } catch { return ""; }
+  return scopeRules(c.cssRules, [], sid).join("\n");
+}
+const cssCache = new Map(), sheetIds = new Map();
+const sidOf = k => sheetIds.get(k) || (sheetIds.set(k, "bk-s" + sheetIds.size), sheetIds.get(k));
+function sheetsOf(doc, base, url) {
+  const linked = $$('link[rel~="stylesheet"][href]', doc).map(l => {
+    const href = new URL(l.getAttribute("href"), base).href, sid = sidOf(href);
+    if (!cssCache.has(href)) cssCache.set(href, fetch(href).then(r => r.text()).then(t => scopeCss(t, sid)).catch(() => ""));
+    return cssCache.get(href).then(t => [href, t, sid]);
+  });
+  const inline = $$("style", doc).map((s, i) => { const k = url + "#style" + i, sid = sidOf(k); return Promise.resolve([k, scopeCss(s.textContent, sid), sid]); });
+  return Promise.all(linked.concat(inline));
+}
+const injected = new Set();
+function injectCss(sheets) {
+  for (const [k, t] of sheets) {
+    if (!t || injected.has(k)) continue;
+    injected.add(k);
+    const s = document.createElement("style"); s.className = "bk-css"; s.textContent = t; document.head.append(s);
+  }
+}
+function dropBookCss() { $$("style.bk-css").forEach(s => s.remove()); injected.clear(); }
+
+// 关闭原书排版时只保留图片的百分比宽度（如章首小花饰），否则小图会被拉满整栏
 async function keepImageWidths(doc, body, base) {
-  const sheets = await Promise.all($$('link[rel~="stylesheet"][href]', doc).map(l => {
-    const href = new URL(l.getAttribute("href"), base).href;
-    if (!cssCache.has(href)) cssCache.set(href, fetch(href).then(r => r.text()).then(t => { const c = new CSSStyleSheet(); c.replaceSync(t); return c; }).catch(() => null));
-    return cssCache.get(href);
-  }));
+  const sheets = await Promise.all($$('link[rel~="stylesheet"][href]', doc).map(l =>
+    fetch(new URL(l.getAttribute("href"), base).href).then(r => r.text()).then(t => { const c = new CSSStyleSheet(); c.replaceSync(t); return c; }).catch(() => null)));
   $$("style", doc).forEach(s => { const c = new CSSStyleSheet(); c.replaceSync(s.textContent); sheets.push(c); });
   const pct = (v) => /^[\d.]+%$/.test(v) ? parseFloat(v) : null;
   const widthOf = (st) => {
@@ -533,39 +606,74 @@ async function keepImageWidths(doc, body, base) {
     if (w != null) try { $$(r.selectorText, body).forEach(n => set(n, w)); } catch {}
   }
   $$("[style]", body).forEach(n => set(n, widthOf(n.style)));
+  $$("[style]", body).forEach(n => n.removeAttribute("style"));
   $$("img[data-w]", body).forEach(img => img.setAttribute("style", `max-width:${img.dataset.w}%`));
 }
+
+const epubType = n => (n.getAttribute("epub:type") || n.getAttributeNS?.("http://www.idpf.org/2007/ops", "type") || "") + " " + (n.getAttribute("role") || "");
+function isNoteRef(a) {
+  if (/noteref/.test(epubType(a))) return true;
+  const t = a.textContent.trim();
+  return t.length <= 6 && /^[\[(]?(\d{1,3}|[*†‡§¶]+|[ivx]{1,4})[\])]?$/i.test(t) && (!!a.closest("sup") || /\d/.test(t) || /[*†‡§¶]/.test(t));
+}
+
+async function parseChapter(i, pub) {
+  const id = st.book.id, url = bookUrl(id, st.book.spine[i]);
+  const txt = await (await fetch(url)).text();
+  let doc = new DOMParser().parseFromString(txt, "application/xhtml+xml");
+  if (doc.querySelector("parsererror") || !doc.body) doc = new DOMParser().parseFromString(txt, "text/html");
+  const body = doc.body || doc.documentElement;
+  const base = new URL(url, location.href);
+  let sheets = [];
+  if (pub) {
+    sheets = await sheetsOf(doc, base, url);
+    $$("[style]", body).forEach(n => { const d = cleanDecl(n.style, false, n.localName === "p"); d ? n.setAttribute("style", d) : n.removeAttribute("style"); });
+  } else await keepImageWidths(doc, body, base);
+  $$("script, style, link, meta, title, iframe, object, embed", body).forEach(n => n.remove());
+  $$("[src]", body).forEach(n => n.setAttribute("src", new URL(n.getAttribute("src"), base).href));
+  $$("image", body).forEach(n => {
+    const h = n.getAttribute("xlink:href") || n.getAttribute("href");
+    if (h) { const abs = new URL(h, base).href; n.setAttribute("href", abs); n.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", abs); }
+  });
+  // 书内链接改成（章节，锚点）；注释链接点开浮层，其余链接跳转
+  const spineIdx = new Map(st.book.spine.map((p, k) => [new URL(bookUrl(id, p), location.href).href, k]));
+  $$("a[href]", body).forEach(a => {
+    const u = new URL(a.getAttribute("href"), base), frag = decodeURIComponent(u.hash.slice(1)); u.hash = "";
+    a.removeAttribute("href");
+    const ch = spineIdx.get(u.href); if (ch == null) return;
+    a.dataset.ch = ch; if (frag) a.dataset.frag = frag;
+    if (frag && isNoteRef(a)) a.classList.add("nref");
+  });
+  $$("aside", body).forEach(n => { if (/footnote|rearnote|endnote/.test(epubType(n))) n.classList.add("fn-aside"); });
+  // 文件开头本来就是新的一页：正文出现之前的元素上的强制分页去掉，否则会多出一个空白页
+  const lead = doc.createTreeWalker(body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+  for (let n; (n = lead.nextNode());) {
+    if (n.nodeType === 3 ? n.nodeValue.trim() : /^(img|svg|image|hr)$/i.test(n.localName)) break;
+    if (n.nodeType === 1) n.classList.add("rd-lead");
+  }
+  // 一个文件里有多章时，前面已有正文的章节标题另起一页
+  let count = 0;
+  const tw = doc.createTreeWalker(body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+  for (let n; (n = tw.nextNode());) {
+    if (n.nodeType === 3) count += n.nodeValue.trim().length;
+    else if (/^h[12]$/i.test(n.localName)) { if (count > 150) n.classList.add("brk"); count = -1e9; }
+    else if (count < 0 && n.localName === "p") count = 0;
+  }
+  // 只有一张图的页（插图、地图、封面）单独占一页，垂直居中
+  const solo = body.textContent.trim().length < 40 && $$("img, svg", body).filter(n => !n.closest("svg") || n.localName === "svg").length === 1;
+  const cls = ["bk-body", body.getAttribute("class") || "", solo ? "solo" : "", ...sheets.map(x => x[2])].join(" ").trim();
+  const bid = body.getAttribute("id");
+  const html = `<div class="${esc(cls)}"${bid ? ` id="${esc(bid)}"` : ""}>${body.innerHTML}</div>`;
+  return { html, sheets, dropcap: !sheets.some(([, t]) => /first-letter|drop-?cap/i.test(t)) };
+}
+const chCache = new Map();
 async function chapterHTML(i) {
-  const id = st.book.id, key = id + ":" + i;
-  if (chCache.has(key)) return chCache.get(key);
-  const p = (async () => {
-    const url = bookUrl(id, st.book.spine[i]);
-    const txt = await (await fetch(url)).text();
-    let doc = new DOMParser().parseFromString(txt, "application/xhtml+xml");
-    if (doc.querySelector("parsererror") || !doc.body) doc = new DOMParser().parseFromString(txt, "text/html");
-    const body = doc.body || doc.documentElement;
-    const base = new URL(url, location.href);
-    await keepImageWidths(doc, body, base);
-    $$("script, style, link, meta, title, iframe, object, embed", body).forEach(n => n.remove());
-    $$("[src]", body).forEach(n => n.setAttribute("src", new URL(n.getAttribute("src"), base).href));
-    $$("image", body).forEach(n => {
-      const h = n.getAttribute("xlink:href") || n.getAttribute("href");
-      if (h) { const abs = new URL(h, base).href; n.setAttribute("href", abs); n.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", abs); }
-    });
-    $$("[style]", body).forEach(n => { if (!n.dataset.w) n.removeAttribute("style"); });
-    $$("a[href]", body).forEach(n => n.removeAttribute("href"));
-    // 一个文件里有多章时，前面已有正文的章节标题另起一页
-    let count = 0;
-    const tw = doc.createTreeWalker(body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-    for (let n; (n = tw.nextNode());) {
-      if (n.nodeType === 3) count += n.nodeValue.trim().length;
-      else if (/^h[12]$/i.test(n.localName)) { if (count > 150) n.classList.add("brk"); count = -1e9; }
-      else if (count < 0 && n.localName === "p") count = 0;
-    }
-    return body.innerHTML;
-  })();
-  chCache.set(key, p);
-  return p;
+  const key = st.book.id + ":" + i + ":" + (st.pub ? 1 : 0);
+  if (!chCache.has(key)) { const p = parseChapter(i, st.pub); chCache.set(key, p); p.catch(() => chCache.delete(key)); }
+  const c = await chCache.get(key);
+  injectCss(c.sheets);
+  if (R && !c.dropcap) R.r.removeAttribute("data-dropcap");
+  return c.html;
 }
 // 一个 spine 文件里可能有好几章：按目录锚点所在的页确定当前章节
 function tocPage(e) {
@@ -593,9 +701,11 @@ function fragPagesOf(flow, ch) {
 async function openBook(id, coverEl) {
   const b = BOOKS.find(x => x.id === id); if (!b || st.busy) return;
   const t0 = performance.now();
+  // Gutenberg 等会把纸书页码（如 {32}）也写进目录，去掉
+  if (b.toc) b.toc = b.toc.filter(e => !/^[\[{]\d+[\]}]$/.test(e.t.trim()));
   st.book = b;
   const pr = progOf(id); pr.opened = Date.now(); if (pr.status !== "done") pr.status = "reading"; saveProg();
-  const r = el("div", "reader"); r.dataset.theme = st.theme; r.dataset.font = st.font; r.style.setProperty("--r-size", st.size + "px");
+  const r = el("div", "reader"); r.dataset.theme = st.theme; r.dataset.font = st.font; r.dataset.dropcap = ""; applyTypo(r);
   r.innerHTML = `
     <div class="rd-clip"><div class="rd-flow" lang="${esc(b.lang || "en")}"></div></div>
     <div class="rd-clip measure"><div class="rd-flow" lang="${esc(b.lang || "en")}"></div></div>
@@ -610,6 +720,7 @@ async function openBook(id, coverEl) {
       <button data-r="themes"><span>主题与设置</span>${I.aa}</button>
       <button data-r="bookwords"><span>本书生词</span><span class="sub" id="rm-count"></span>${I.star}</button>
     </div>
+    <button class="rd-back" data-r="back" hidden>返回原处</button>
     <div class="lk" role="dialog"></div>`;
   if (st.kb) N.keyboard(false);
   document.activeElement?.blur?.();
@@ -644,7 +755,7 @@ function closeBook() {
   N.reading(false); N.bars(true, !darkUI());
   if (st.tab !== "library") setTab("library", false); else renderLibrary();
   const target = $(`#v-library [data-open="${b.id}"] .cover`);
-  const done = () => { r.remove(); R = null; st.book = null; st.busy = false; };
+  const done = () => { r.remove(); R = null; st.book = null; st.busy = false; dropBookCss(); };
   if (!target || reduced) { r.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: "ease-out", fill: "forwards" }).finished.then(done); return; }
   const c = rectIn(target), [W, H] = dims();
   const ghost = target.cloneNode(true); ghost.style.cssText += `;position:absolute;z-index:55;left:0;top:0;width:${c.w}px;height:${c.h}px;transform-origin:0 0`;
@@ -658,7 +769,10 @@ function closeBook() {
 function geometry() {
   const [W, H] = dims();
   const spread = st.screen === "inner" && st.spread;
-  const g = spread ? { top: 58, bottom: 52, side: 60, gap: 84 } : { top: 60, bottom: 52, side: 30, gap: 60 };
+  const side = { s: [20, 40], m: [30, 60], l: [44, 84] }[st.margin][spread ? 1 : 0];
+  const g = spread ? { top: 58, bottom: 52, side, gap: 84 } : { top: 60, bottom: 52, side, gap: 60 };
+  // 单页时限制行长，每行约 65–75 个字符
+  if (!spread) g.side = Math.max(side, (W - st.size * 34) / 2);
   const headY = Math.max(24, sat() - 4);
   g.top = Math.max(g.top, headY + 34);
   return { W, H, spread, g, headY };
@@ -668,7 +782,7 @@ function layout(anchor, opts = {}) {
   const clipW = W - g.side * 2, clipH = H - g.top - g.bottom;
   const pageW = spread ? (clipW - g.gap) / 2 : clipW;
   Object.assign(R, { W, H, spread, clipL: g.side, clipT: g.top, clipW, clipH, pageW, gap: g.gap, step: pageW + g.gap, headY });
-  R.r.style.setProperty("--clip-h", clipH * 0.9 + "px");
+  R.r.style.setProperty("--clip-h", clipH * 0.9 + "px"); R.r.style.setProperty("--page-h", clipH + "px");
   for (const [clip, flow] of [[R.clip, R.flow], [R.mclip, R.mflow]]) {
     Object.assign(clip.style, { left: g.side + "px", top: g.top + "px", width: clipW + "px", height: clipH + "px" });
     Object.assign(flow.style, { width: clipW + "px", columnCount: spread ? 2 : 1, columnGap: g.gap + "px", transform: "translateX(0)" });
@@ -701,7 +815,31 @@ async function loadChapter(ch, opts = {}) {
   layout(opts.off ?? null, opts);
   // 图片加载完成后版面会变，按当前位置重新分页
   $$("img, image", R.flow).forEach(img => { if (img.tagName === "IMG" && img.complete) return; img.addEventListener("load", relayoutSoon, { once: true }); });
+  $$("img", R.flow).forEach(classifyImg);
   [ch + 1, ch - 1].forEach(i => { if (i >= 0 && i < st.book.spine.length) chapterHTML(i); });
+}
+// 线稿图（花饰、地图、图表）四周是白底且几乎没有颜色：浅色主题里融进底色，深色主题里反相
+const imgKind = new Map();
+function classifyImg(img) {
+  const go = () => {
+    let k = imgKind.get(img.src);
+    if (!k) {
+      try {
+        const N = 24, c = document.createElement("canvas"); c.width = c.height = N;
+        const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(img, 0, 0, N, N);
+        const d = x.getImageData(0, 0, N, N).data; let edge = 0, light = 0, sat = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]), px = (i / 4) % N, py = (i / 4 / N) | 0;
+          sat += d[i + 3] < 20 ? 0 : mx - mn;
+          if (px === 0 || py === 0 || px === N - 1 || py === N - 1) { edge++; if (d[i + 3] < 20 || mn > 225) light++; }
+        }
+        k = light / edge > 0.6 && sat / (N * N) < 24 ? "im-line" : "im-photo";
+      } catch { k = "im-photo"; }
+      imgKind.set(img.src, k);
+    }
+    img.classList.add(k);
+  };
+  if (img.complete && img.naturalWidth) go(); else img.addEventListener("load", go, { once: true });
 }
 let relayoutT;
 function relayoutSoon() { clearTimeout(relayoutT); relayoutT = setTimeout(() => { if (!R) return; if (st.busy || R.lk.classList.contains("on")) relayoutSoon(); else relayout(); }, 120); }
@@ -751,7 +889,7 @@ function pageForOffset(off) {
 }
 
 /* ---------- 全书页码：后台逐章分页，结果按书、字号、字体、屏幕缓存 ---------- */
-const measureKey = () => [st.size, st.font, st.theme === "bold", R.W, R.H, R.spread].join("|");
+const measureKey = () => [st.size, st.font, st.theme === "bold", R.W, R.H, R.spread, st.lh, st.margin, st.justify, st.pub].join("|");
 async function measureAll() {
   if (!R) return;
   const key = measureKey(), cached = kv.get("pages:" + st.book.id, null);
@@ -839,6 +977,7 @@ function viewFor(p) {
 const animOff = () => reduced || N.animScale?.() === 0;
 async function turn(dir) {
   if (!R || st.busy) return;
+  if (R.back && ++R.back.turns > 3) clearBack();
   const stepN = R.spread ? 2 : 1, to = R.page + dir * stepN;
   const sameCh = to >= 0 && to < R.pages;
   if (!sameCh && (R.ch + dir < 0 || R.ch + dir >= st.book.spine.length)) {
@@ -965,6 +1104,11 @@ function bindReader() {
     if (d.long || d.dbl) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { turn(dx < 0 ? 1 : -1); return; }
+    const link = e.target.closest("a[data-ch]");
+    if (link && R.flow.contains(link) && !R.lk.classList.contains("on") && !R.menu.classList.contains("on")) {
+      if (link.classList.contains("nref")) openNote(link); else followLink(link);
+      return;
+    }
     const x = e.clientX - r.getBoundingClientRect().left;
     const act = () => {
       if (R.lk.classList.contains("on")) { hideLookup(); return; }
@@ -988,6 +1132,7 @@ function bindReader() {
       R.menu.classList.toggle("on");
     }
     else if (a === "bm") toggleBookmark();
+    else if (a === "back") goBack();
     else { R.menu.classList.remove("on"); ({ toc: openToc, find: openFind, themes: openThemes, bookwords: openBookWords })[a](); }
   });
   R.lk.addEventListener("click", e => { if (e.target.closest("[data-close]")) hideLookup(); });
@@ -1009,9 +1154,13 @@ function lookupInBook(span) {
   st.lkSentence = sentence; st.lkWord = span.textContent;
   const tn = tindex(); const n = span.firstChild;
   const hit = tn.find(([node]) => node === n); R.lkOff = hit ? hit[1] : null;
+  showCard('<div class="grab"></div>' + wordHTML(info, { sentence, close: true }), rectIn(span));
+  if (info.found) resolveCtx($(".wd", lk), info, sentence);
+}
+function showCard(html, sr) {
+  const lk = R.lk;
   lk.classList.remove("on");
-  lk.innerHTML = '<div class="grab"></div>' + wordHTML(info, { sentence, close: true });
-  const sr = rectIn(span);
+  lk.innerHTML = html;
   const atTop = st.screen === "outer" && sr.y > R.H * 0.48;
   lk.style.transition = "none"; lk.classList.toggle("top", atTop); void lk.offsetWidth; lk.style.transition = "";
   // 卡片不能挡住被查的词：高度限制在词上方或下方的空间里，超出时在卡片内滚动
@@ -1023,8 +1172,41 @@ function lookupInBook(span) {
     lk.style.left = x + "px"; lk.style.bottom = "64px";
   }
   void lk.offsetWidth; lk.classList.add("on");
-  if (info.found) resolveCtx($(".wd", lk), info, sentence);
 }
+/* ---------- 书内链接与注释 ---------- */
+async function noteOf(a) {
+  const ch = +a.dataset.ch, frag = a.dataset.frag;
+  let root = R.flow;
+  if (ch !== R.ch) { root = document.createElement("div"); root.innerHTML = await chapterHTML(ch); }
+  let t = root.querySelector("#" + CSS.escape(frag));
+  if (!t) return null;
+  if (!/^(aside|li|dd|p|blockquote)$/.test(t.localName)) t = t.closest("aside, li, dd, p, blockquote, div:not(.bk-body)") || t;
+  const c = t.cloneNode(true);
+  c.classList.remove("fn-aside");
+  // 去掉注释开头指回正文的编号链接
+  $$("a[data-ch]", c).forEach(x => { if (/^[\[(]?([\divx]{1,4}|[*†‡§¶]+)[\])]?\.?$|↩|↑|^back\b|返回/i.test(x.textContent.trim())) x.remove(); });
+  $$("[id]", c).forEach(x => x.removeAttribute("id")); c.removeAttribute("id");
+  return c.textContent.trim() ? c : null;
+}
+async function openNote(a) {
+  const n = await noteOf(a);
+  if (!R) return;
+  if (!n) { followLink(a); return; }
+  hideLookup();
+  showCard(`<div class="grab"></div><div class="note">${n.outerHTML}</div>`, rectIn(a));
+}
+async function followLink(a) {
+  const ch = +a.dataset.ch, frag = a.dataset.frag;
+  R.back = { ch: R.ch, off: anchorOffset(), turns: 0 };
+  if (ch === R.ch) { const t = frag && R.flow.querySelector("#" + CSS.escape(frag)); setPage(t ? pageOf(t) : 0); }
+  else await loadChapter(ch, frag ? { frag } : { page: 0 });
+  $(".rd-back", R.r).hidden = false;
+}
+async function goBack() {
+  const b = R.back; clearBack();
+  if (b.ch === R.ch) setPage(pageForOffset(b.off)); else await loadChapter(b.ch, { off: b.off });
+}
+function clearBack() { if (!R) return; R.back = null; $(".rd-back", R.r).hidden = true; }
 function hideLookup() {
   if (!R) return;
   R.lk.classList.remove("on");
@@ -1110,6 +1292,10 @@ function openThemes() {
       <div class="themes">${THEMES.map(([k, n, bg, fg]) => `<button class="th" data-th="${k}" aria-pressed="${st.theme === k}" style="--tb:${bg};--tf:${fg}"><span class="aa" style="${k === "bold" ? "font-weight:700" : ""}">Aa</span><span class="nm">${n}</span></button>`).join("")}</div>
       <div class="opts">
         <div class="opt"><span>字体</span>${seg("font", [["literata", "Literata"], ["source", "Source Serif"], ["sans", "无衬线"]])}</div>
+        <div class="opt"><span>行距</span>${seg("lh", [["s", "紧凑"], ["m", "适中"], ["l", "宽松"]])}</div>
+        <div class="opt"><span>页边距</span>${seg("margin", [["s", "窄"], ["m", "中"], ["l", "宽"]])}</div>
+        <div class="opt"><span>两端对齐</span><button class="switch" role="switch" data-sw="justify" aria-checked="${st.justify}" aria-label="两端对齐"></button></div>
+        <div class="opt"><span>原书排版</span><button class="switch" role="switch" data-sw="pub" aria-checked="${st.pub}" aria-label="原书排版"></button></div>
         <div class="opt"><span>翻页</span>${seg("turn", [["curl", "仿真"], ["slide", "滑动"], ["fade", "淡入"], ["none", "无"]])}</div>
         ${st.screen === "inner" ? `<div class="opt"><span>双页</span><button class="switch" role="switch" data-spread aria-checked="${st.spread}" aria-label="双页"></button></div>` : ""}
       </div>
@@ -1198,7 +1384,15 @@ sheet.addEventListener("click", async e => {
     $$(`[data-set="${set.dataset.set}"]`, sheet).forEach(b => b.setAttribute("aria-pressed", b === set));
     if (set.dataset.set === "font") { const a = anchorOffset(); R.r.dataset.font = st.font; await document.fonts.ready; layout(a); invalidatePages(); }
     if (set.dataset.set === "turn") demoTurn();
+    if (set.dataset.set === "lh" || set.dataset.set === "margin") { const a = anchorOffset(); applyTypo(R.r); layout(a); invalidatePages(); }
     return;
+  }
+  const sw = e.target.closest("[data-sw]");
+  if (sw) {
+    const k = sw.dataset.sw; st[k] = !st[k]; saveReaderPrefs(); sw.setAttribute("aria-checked", st[k]);
+    const a = anchorOffset(); applyTypo(R.r);
+    if (k === "pub") { chCache.clear(); dropBookCss(); R.r.dataset.dropcap = ""; await loadChapter(R.ch, { off: a }); } else layout(a);
+    invalidatePages(); return;
   }
   const sp = e.target.closest("[data-spread]");
   if (sp) { st.spread = !st.spread; saveReaderPrefs(); sp.setAttribute("aria-checked", st.spread); relayout(); invalidatePages(); }
