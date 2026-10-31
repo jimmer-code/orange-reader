@@ -296,6 +296,16 @@ public abstract class WebActivity extends Activity {
         return o;
     }
 
+    // Built from Immersive Translate's eBook/fiction expert prompts, plus rules against Chinese translationese.
+    static final String TRANSLATE_PROMPT = "你是母语为简体中文的资深译者，帮读者看懂英文书里的一段文字。把<text>里的英文译成简体中文。\n"
+            + "1. 只输出译文，不加解释、注释、引号或\"译文：\"之类的前缀。\n"
+            + "2. 先读懂意思和语气，再用中文本来的说法写出来，不逐词对译。英文长句按中文习惯拆短、调整语序。\n"
+            + "3. 不要翻译腔：少用\"被\"\"的\"\"着\"\"一个\"\"他们\"堆叠，代词能省就省，连接词只在中文需要时才用。\n"
+            + "4. 比喻、俚语、习语按意思译成中文自然的说法。人名、地名和专有名词用通行译名，没有通行译名就保留原文。\n"
+            + "5. 保持原文的语气和文体：对话口语化，叙述贴着作者的风格，不拔高、不加戏，不添加原文没有的信息。\n"
+            + "6. <text>可能是半句话，只译给出的部分。<context>只用来理解指代和语境，不要翻译它。";
+    static final String ASK_PROMPT = "用户在读英文书时遇到一个词典里查不到的词。用简体中文简要解释它的意思；给了句子时，说明它在句中的意思。";
+
     String key() {
         return BuildConfig.OPENCODE_KEY;
     }
@@ -370,13 +380,22 @@ public abstract class WebActivity extends Activity {
             });
         }
 
+        @JavascriptInterface public void warmNet() {
+            String key = key();
+            if (!key.isEmpty()) net.execute(() -> Net.warm(key));
+        }
+
         @JavascriptInterface public void translate(int id, String text, boolean ask) {
             String key = key();
-            String system = ask ? "用户在读英文书时遇到一个词典里查不到的词。用简体中文简要解释它的意思；给了句子时，说明它在句中的意思。"
-                    : "把用户给出的英文译成自然的简体中文，只输出译文";
+            String system = ask ? ASK_PROMPT : TRANSLATE_PROMPT;
             net.execute(() -> {
+                long t0 = System.currentTimeMillis();
+                long[] first = {0};
                 try {
-                    String err = Net.chat(key, system, text, t -> emit("tr", jsonQuiet("id", String.valueOf(id), "delta", t)));
+                    String err = Net.chat(key, system, text, t -> {
+                        if (first[0] == 0) { first[0] = System.currentTimeMillis() - t0; Log.i("ShubianPerf", "tr first " + first[0] + "ms"); }
+                        emit("tr", jsonQuiet("id", String.valueOf(id), "delta", t));
+                    });
                     emit("tr", err == null ? jsonQuiet("id", String.valueOf(id), "done", "1") : jsonQuiet("id", String.valueOf(id), "error", err));
                 } catch (Exception e) {
                     emit("tr", jsonQuiet("id", String.valueOf(id), "error", "网络不可用"));

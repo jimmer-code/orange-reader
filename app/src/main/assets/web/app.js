@@ -136,14 +136,23 @@ function senseQuestion(word, items) {
 let trSeq = 0;
 const trWait = {};
 handlers.tr = d => { const f = trWait[d.id]; if (f) f(d); if (d.done || d.error) delete trWait[d.id]; };
+const trCache = new Map();
 function streamTr(text, ask, target) {
+  if (!ask && trCache.has(text)) { target.textContent = trCache.get(text); return; }
   const id = ++trSeq; let out = "";
   target.textContent = "…";
   trWait[id] = d => {
     if (d.delta) { out += d.delta; target.textContent = out; }
+    if (d.done && !ask) trCache.set(text, out);
     if (d.error) target.textContent = out || d.error;
   };
   N.translate(id, text, ask);
+}
+// 书名和所在段落给模型理解指代和语境，只翻 <text> 里的部分
+function translateText(text, target, ctx) {
+  const title = st.book ? `书名：《${st.book.title}》\n` : "";
+  const c = ctx && ctx.length > text.length + 20 && ctx.length < 1500 ? `<context>${ctx}</context>\n` : "";
+  streamTr(`${title}${c}<text>${text}</text>`, false, target);
 }
 
 /* ===================== 外壳 ===================== */
@@ -500,7 +509,7 @@ function toggleSave(lemma, src, btn, extra = {}) {
 }
 scr.addEventListener("click", e => {
   const s = e.target.closest("[data-say]"); if (s) { speak(s.dataset.say); return; }
-  if (e.target.closest("[data-trs]") && R) { const hl = $(".w.hl", R.flow); translateInBook(st.lkSentence, rectIn(hl || R.lk)); return; }
+  if (e.target.closest("[data-trs]") && R) { const hl = $(".w.hl", R.flow); translateInBook(st.lkSentence, rectIn(hl || R.lk), null, hl && blockText(hl)); return; }
   const ask = e.target.closest("[data-ask]");
   if (ask) { const out = ask.closest(".wd").querySelector("[data-ai-out]"); ask.closest(".acts").remove(); streamTr(ask.dataset.ask + (st.lkSentence ? "\n句子：" + st.lkSentence : ""), true, out); return; }
   const v = e.target.closest("[data-save]");
@@ -1106,7 +1115,7 @@ function bindReader() {
   });
   r.addEventListener("pointerup", e => {
     cancel(); if (!down) return; const d = down; down = null;
-    if (d.sel) { finishSel(d.sel); return; }
+    if (d.sel) { finishSel(d); return; }
     if (d.long || d.dbl) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { turn(dx < 0 ? 1 : -1); return; }
@@ -1127,7 +1136,7 @@ function bindReader() {
     // 点在中间的单词上时稍等，留给双击查词
     if (d.w && x >= R.W * 0.28 && x <= R.W * 0.72 && !R.lk.classList.contains("on")) tapT = setTimeout(() => { tapT = null; act(); }, 260); else act();
   });
-  r.addEventListener("pointercancel", () => { cancel(); down = null; });
+  r.addEventListener("pointercancel", () => { cancel(); if (down) clearTimeout(down.edgeT); down = null; });
   r.addEventListener("click", e => {
     const b = e.target.closest("[data-r]"); if (!b) return;
     const a = b.dataset.r;
@@ -1153,33 +1162,54 @@ function toggleBookmark() {
 }
 
 /* ---------- 拖动选句与整句翻译 ---------- */
-// 长按出查词卡后不松手继续拖，选区从起始词扩展到手指下的词
+// 长按出查词卡后不松手继续拖，选区从起始词扩展到手指下的词；拖到屏幕左右边缘停住会翻页（只在本章内）
 function extendSel(d, x, y) {
+  edgeWatch(d, x);
   let w2 = wordAt(x, y); if (!w2) return;
-  if (!d.sel) {
+  if (!d.anchor) {
     if (d.span && d.span.contains(w2.node)) return;
-    hideLookup(); w2 = wordAt(x, y); if (!w2) return; // hideLookup 拆掉了词外面的 span，区间要重新取
+    hideLookup(); // 拆掉词外面的 span 后区间要重新取
+    w2 = wordAt(x, y); const w1 = wordAt(d.x, d.y); if (!w1 || !w2) return;
+    d.anchor = w1; N.warmNet();
   }
-  const w1 = wordAt(d.x, d.y); if (!w1) return;
+  const w1 = d.anchor;
   const [a, b] = w1.range.compareBoundaryPoints(Range.START_TO_START, w2.range) <= 0 ? [w1, w2] : [w2, w1];
   const range = document.createRange();
   range.setStart(a.node, a.a); range.setEnd(b.node, b.b);
-  d.sel = range;
+  d.sel = range; d.last = w2.range;
   CSS.highlights.set("rsel", new Highlight(range));
 }
-function finishSel(range) {
-  const text = range.toString().replace(/\s+/g, " ").trim();
-  if (!/\s/.test(text)) { CSS.highlights.delete("rsel"); const w = wordAt(...centerOf(range)); if (w) lookupInBook(wrapWord(w)); return; }
-  translateInBook(text.slice(0, 1500), rectOfRange(range), range);
+function edgeWatch(d, x) {
+  const rx = x - R.r.getBoundingClientRect().left, edge = Math.max(28, R.W * 0.07);
+  const dir = !d.anchor ? 0 : rx > R.W - edge ? 1 : rx < edge ? -1 : 0;
+  if (dir === d.edge) return;
+  clearTimeout(d.edgeT); d.edge = dir;
+  if (!dir) return;
+  const step = () => {
+    const to = R.page + dir * (R.spread ? 2 : 1);
+    if (!R || to < 0 || to >= R.pages) return;
+    setPage(to);
+    if (d.sel) CSS.highlights.set("rsel", new Highlight(d.sel));
+    d.edgeT = setTimeout(step, 900);
+  };
+  d.edgeT = setTimeout(step, 450);
 }
+function finishSel(d) {
+  clearTimeout(d.edgeT);
+  const text = d.sel.toString().replace(/\s+/g, " ").trim();
+  if (!/\s/.test(text)) { CSS.highlights.delete("rsel"); const w = wordAt(...centerOf(d.last)); if (w) lookupInBook(wrapWord(w)); return; }
+  const common = d.sel.commonAncestorContainer, block = (common.nodeType === 3 ? common.parentElement : common).closest("p, li, blockquote, td, h1, h2, h3, h4, div");
+  translateInBook(text.slice(0, 1500), rectOfRange(d.last), d.sel, block && block !== R.flow ? block.textContent : "");
+}
+function blockText(span) { return (span.closest("p, li, blockquote, td, h1, h2, h3, h4, div") || R.flow).textContent; }
 function centerOf(range) { const c = range.getBoundingClientRect(); return [c.left + c.width / 2, c.top + c.height / 2]; }
 function rectOfRange(range) { const a = range.getBoundingClientRect(), s = scr.getBoundingClientRect(); return { x: a.left - s.left, y: a.top - s.top, w: a.width, h: a.height }; }
-function translateInBook(text, rect, range) {
+function translateInBook(text, rect, range, ctx) {
   hideLookup();
   if (range) CSS.highlights.set("rsel", new Highlight(range));
   showCard(`<div class="grab"></div><div class="wd"><div class="wd-h"><div class="grow"><div class="trx src">${esc(text)}</div></div>
     <button class="x" data-close aria-label="关闭">${I.x}</button></div><div class="trx" id="rtr"></div></div>`, rect);
-  streamTr(text, false, $("#rtr", R.lk));
+  translateText(text, $("#rtr", R.lk), ctx && ctx.replace(/\s+/g, " ").trim());
 }
 
 /* ---------- 阅读中查词 ---------- */
@@ -1191,6 +1221,7 @@ function lookupInBook(span) {
   const tn = tindex(); const n = span.firstChild;
   const hit = tn.find(([node]) => node === n); R.lkOff = hit ? hit[1] : null;
   showCard('<div class="grab"></div>' + wordHTML(info, { sentence, close: true }), rectIn(span));
+  N.warmNet();
   if (info.found) resolveCtx($(".wd", lk), info, sentence);
 }
 function showCard(html, sr) {
@@ -1602,7 +1633,7 @@ function cardFor(text) {
   if (words.length > 1 && N.hasTr()) {
     openSheet(`<div class="sh-head"><h3>整句翻译</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
       <div class="sh-body"><div class="wd"><div class="trx src">${esc(text.trim())}</div><div class="trx" id="trout"></div></div></div>`, "lk-card", closeCard);
-    streamTr(text.trim(), false, $("#trout"));
+    translateText(text.trim(), $("#trout"));
   } else if (words.length) {
     openSheet(`<div class="sh-body" style="padding-top:14px">${wordHTML(lookupWord(words[0]), { close: true, swap: st.screen === "inner" })}</div>`, "lk-card", closeCard);
   } else {

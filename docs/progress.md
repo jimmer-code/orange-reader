@@ -70,3 +70,4 @@
 - 翻译和「问 AI」改走 OpenCode Go 的 DeepSeek V4.1 Flash，用内置的 OpenCode Key，设置页去掉接口地址、模型、Key 三项。请求带 `x-opencode-session`，关闭思考（首字从约 3 秒降到约 2 秒）。
 - 阅读页整句翻译两个入口：长按查词后不松手拖动扩选，松手翻译选区（选区用 CSS Highlight API 高亮，不改 DOM）；查词卡「翻译整句」翻译当前句。
 - 实测：模拟器内屏双页 Moby Dick 第 20 章，`adb input motionevent` 长按拖动两行，译文流式显示；「翻译整句」翻译 might 所在的整句。
+- 第二轮：拖选可以跨页（拖到左右边缘停住翻页）；翻译 prompt 参照沉浸式翻译 ebook/fiction 专家并加反翻译腔规则，带书名和段落上下文；连接复用和预热后，手机上 Jev 从 1.3 到 4.6 秒降到约 0.5 秒，翻译首字 1.2 到 1.5 秒；同句译文缓存。
