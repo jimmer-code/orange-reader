@@ -270,7 +270,7 @@ CREATE TABLE form (
 
 ## 5. Jev 接口
 
-- `POST https://opencode.ai/zen/v1/systemone`（OpenCode Zen 转发 Typesafe Jev；Go 套餐不含 Jev，按 Zen 余额计费，每次约 $0.00002）
+- `POST https://opencode.ai/zen/v1/systemone`（OpenCode Zen 转发 Typesafe Jev；Go 套餐不含 Jev，用限时免费的 jev-1.13-free，不扣余额；免费下线后改回 jev-1.13，每次约 $0.00002）
 - 请求头：`Authorization: Bearer <key>`、`Content-Type: application/json`
 - 超时 20 秒，失败不重试，走离线兜底。
 
@@ -278,7 +278,7 @@ CREATE TABLE form (
 
 ```json
 {
-  "model": "jev-1.13",
+  "model": "jev-1.13-free",
   "state": { "reader": "<设置里的读者水平>", "passage": "<段落或句子>" },
   "questions": {
     "hard_spleen": {

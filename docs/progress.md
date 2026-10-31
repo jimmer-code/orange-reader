@@ -50,7 +50,7 @@
 - 偏差：
   - 界面用 WebView 而不是原生 View，语言是 Java 而不是 Kotlin。原因：与原型像素和交互一致，且原型代码可直接复用。
   - Jev Key 按用户要求在构建时从 `local.properties` 的 `jev.key`（OpenCode Go 账号的 Zen Key）注入 `BuildConfig`，会进入 APK，但不进 Git；设置页不再要求填写。
-  - Jev 改走 OpenCode Zen（`opencode.ai/zen/v1/systemone`，模型 jev-1.13），不再直连 Typesafe（对中国大陆返回 HTTP 451）。
+  - Jev 改走 OpenCode Zen（`opencode.ai/zen/v1/systemone`，模型 jev-1.13-free，限时免费），不再直连 Typesafe（对中国大陆返回 HTTP 451）。
   - 前缀查询按词频排序，`sp` 首屏是 speak、spend 等常用词，不再包含 spleen。
   - 「原色」「粗体」主题在系统深色模式下改用深色底。
 

@@ -121,7 +121,7 @@ handlers.jev = d => {
 function jevAsk(passage, questions) {
   return new Promise((res, rej) => {
     const id = ++jevSeq; jevWait[id] = { res, rej };
-    N.jev(id, JSON.stringify({ model: "jev-1.13", state: { reader: settings.level, passage }, questions }));
+    N.jev(id, JSON.stringify({ model: "jev-1.13-free", state: { reader: settings.level, passage }, questions }));
   });
 }
 const NOUL = {
