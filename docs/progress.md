@@ -29,3 +29,11 @@
 - 检查：`./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
 - 截图：`docs/screens/M4/`；未运行模拟器，未生成设备截图。
 - 偏差：仿真动画当前用原生 View 的轻微旋转代替位图 mesh 卷曲，拖动跟手和双页书脊轴尚未实现。
+
+## M5
+- 拍照和相册入口进入结果页，显示照片预览、识别状态、一次扫描线反馈和错开淡入的候选词列表。
+- 离线结果明确提示“离线判断，可能不准”，候选包含 hypos、spleen、mole；长按“认识”会持久化并移除该词，点击候选可打开共用词典卡片。
+- 加入 `testdata/` 最小 EPUB3、EPUB2 夹具和带 `META-INF/encryption.xml` 的 DRM 假书，方便验收导入与拒绝路径。
+- 检查：`./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；debug APK 2.4 MB，release APK 52 KB（R8/资源压缩后，已用本机 debug keystore 签名）。
+- 截图：`docs/screens/M5/`；未运行模拟器，未生成设备截图。
+- 偏差：此环境没有接入 ML Kit 内置模型依赖，M5 当前以离线候选和扫描流程占位；Jev 两步请求与 OCR 实际识别需后续接入依赖和 API。

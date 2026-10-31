@@ -1,0 +1,1 @@
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>白鲸记</dc:title><dc:creator>赫尔曼·麦尔维尔</dc:creator></metadata><manifest><item id="c" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c"/></spine></package>
