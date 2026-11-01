@@ -80,3 +80,10 @@
 - 检查：`node --check app/src/main/assets/web/app.js && ./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；模拟器验证词卡、短语选区卡片、层级切换和流式翻译，无新增 WebView 异常。
 - 截图：`docs/screens/M9/`（Fold_DS_API36 内屏，浅色词卡和短语卡）。
 - 偏差：当前未做跨章节选区；句子层级使用起始词所在句作为上下文，跨句拖动仍保留在当前章节内，后续再扩展句间选择。
+
+## M10 连续翻页交互
+- 翻页请求改为队列：动画进行时继续滑动不会丢失，后续方向按顺序消费，最多缓存 12 次手势。
+- 连续翻页使用加速过渡：仿真翻页从 720ms 调整为规格中的 450ms，队列中的仿真页缩短为 280ms；滑动和淡入也有快速连续模式；“无”保持立即切换。
+- 关闭图书或重新打开图书时清空待处理翻页，避免旧手势进入新书。
+- 检查：`node --check app/src/main/assets/web/app.js && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
+- 偏差：本轮采用可连续消费的翻页队列，尚未实现手指直接拖拽页面曲面的完全跟手中断；仿真翻页仍在每页动画之间快速衔接。

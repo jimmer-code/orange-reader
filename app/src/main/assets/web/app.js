@@ -718,6 +718,7 @@ function fragPagesOf(flow, ch) {
 }
 async function openBook(id, coverEl) {
   const b = BOOKS.find(x => x.id === id); if (!b || st.busy) return;
+  clearTurnQueue();
   const t0 = performance.now();
   // Gutenberg 等会把纸书页码（如 {32}）也写进目录，去掉
   if (b.toc) b.toc = b.toc.filter(e => !/^[\[{]\d+[\]}]$/.test(e.t.trim()));
@@ -765,7 +766,9 @@ function zoomFromCover(coverEl, r) {
   r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, delay: 320, easing: "ease-out", fill: "forwards" }).finished.then(() => { r.style.opacity = ""; r.getAnimations().forEach(a => a.cancel()); ghost.remove(); st.busy = false; });
 }
 function closeBook() {
-  if (!R || st.busy) return;
+  if (!R) return;
+  clearTurnQueue();
+  if (st.busy) return;
   const b = st.book; savePos(true);
   const r = R.r; st.busy = true;
   hideLookup(); R.menu.classList.remove("on"); r.classList.remove("ui");
@@ -993,8 +996,33 @@ function viewFor(p) {
   return v;
 }
 const animOff = () => reduced || N.animScale?.() === 0;
-async function turn(dir) {
-  if (!R || st.busy) return;
+const turnQueue = [];
+let turnRunner = null;
+function clearTurnQueue() {
+  while (turnQueue.length) turnQueue.shift().resolve();
+}
+function queueTurn(dir) {
+  return new Promise(resolve => {
+    if (!R) { resolve(); return; }
+    if (turnQueue.length >= 12) { resolve(); return; }
+    turnQueue.push({ dir, resolve });
+    if (!turnRunner) turnRunner = runTurnQueue();
+  });
+}
+async function runTurnQueue() {
+  try {
+    while (turnQueue.length && R) {
+      const job = turnQueue.shift();
+      await animateTurn(job.dir, turnQueue.length > 0);
+      job.resolve();
+    }
+  } finally {
+    clearTurnQueue(); turnRunner = null;
+  }
+}
+function turn(dir) { return queueTurn(dir); }
+async function animateTurn(dir, fast = false) {
+  if (!R) return;
   if (R.back && ++R.back.turns > 3) clearBack();
   const stepN = R.spread ? 2 : 1, to = R.page + dir * stepN;
   const sameCh = to >= 0 && to < R.pages;
@@ -1010,18 +1038,18 @@ async function turn(dir) {
     if (mode === "none") await go();
     else if (mode === "fade") {
       const v = viewFor(R.page); layer.append(v); await go();
-      await v.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 320, easing: "ease-out", fill: "forwards" }).finished;
+      await v.animate([{ opacity: 1 }, { opacity: 0 }], { duration: fast ? 180 : 320, easing: "ease-out", fill: "forwards" }).finished;
     } else if (mode === "slide") {
       const strip = el("div"); strip.style.cssText = "position:absolute;inset:0";
       strip.append(viewFor(R.page)); layer.append(strip);
       await go();
       const b = viewFor(R.page); b.style.left = dir * R.W + "px"; strip.append(b);
-      await strip.animate([{ transform: "translateX(0)" }, { transform: `translateX(${-dir * R.W}px)` }], { duration: 420, easing: "cubic-bezier(.22,.8,.2,1)", fill: "forwards" }).finished;
-    } else await curl(dir, go);
+      await strip.animate([{ transform: "translateX(0)" }, { transform: `translateX(${-dir * R.W}px)` }], { duration: fast ? 240 : 420, easing: "cubic-bezier(.22,.8,.2,1)", fill: "forwards" }).finished;
+    } else await curl(dir, go, fast ? 280 : 450);
   } finally { layer.innerHTML = ""; st.busy = false; }
 }
-async function curl(dir, go) {
-  const layer = R.turn, D = 720, ease = "cubic-bezier(.42,.05,.2,1)";
+async function curl(dir, go, duration) {
+  const layer = R.turn, D = duration, ease = "cubic-bezier(.42,.05,.2,1)";
   const flip = el("div", "rd-flip"), from = R.page;
   const coverV = viewFor(from); layer.append(coverV); // 换章时新内容加载期间先盖住旧页
   let front, back, under, hingeLeft, keys, castOn;
