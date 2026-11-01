@@ -11,16 +11,20 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Locale;
+import java.util.zip.GZIPInputStream;
 
-/** Offline ECDICT lookup. The db ships in assets and is copied once per app version. */
+/** Offline ECDICT lookup. The core db and long-tail db ship in assets and are copied once per app version. */
 final class Dict {
-    private static final int VERSION = 3;
+    private static final int VERSION = 5;
     private static Dict instance;
     private final SQLiteDatabase db;
+    private final SQLiteDatabase extra;
 
     static synchronized Dict get(Context c) {
         if (instance == null) instance = new Dict(c.getApplicationContext());
@@ -34,6 +38,12 @@ final class Dict {
             c.getSharedPreferences("dict", 0).edit().putInt("v", VERSION).apply();
         }
         db = SQLiteDatabase.openDatabase(f.getPath(), null, SQLiteDatabase.OPEN_READONLY);
+        File ef = c.getDatabasePath("dict_extra.db");
+        if (c.getSharedPreferences("dict", 0).getInt("extra_v", 0) != VERSION || !ef.exists()) {
+            buildExtra(c, ef);
+            c.getSharedPreferences("dict", 0).edit().putInt("extra_v", VERSION).apply();
+        }
+        extra = SQLiteDatabase.openDatabase(ef.getPath(), null, SQLiteDatabase.OPEN_READONLY);
     }
 
     private static void copy(Context c, File f) {
@@ -43,6 +53,37 @@ final class Dict {
             for (int n; (n = in.read(b)) > 0; ) out.write(b, 0, n);
         } catch (IOException e) {
             throw new IllegalStateException(e);
+        }
+    }
+
+    private static void buildExtra(Context c, File f) {
+        f.getParentFile().mkdirs();
+        if (f.exists() && !f.delete()) throw new IllegalStateException("无法更新离线词库");
+        SQLiteDatabase d = SQLiteDatabase.openOrCreateDatabase(f, null);
+        d.execSQL("PRAGMA synchronous=OFF");
+        d.execSQL("PRAGMA journal_mode=OFF");
+        d.execSQL("CREATE TABLE entry (word TEXT PRIMARY KEY, phonetic TEXT, trans TEXT NOT NULL, rank INTEGER) WITHOUT ROWID");
+        android.database.sqlite.SQLiteStatement insert = d.compileStatement("INSERT INTO entry VALUES (?,?,?,?)");
+        d.beginTransaction();
+        try (InputStream raw = c.getAssets().open("dict_extra.tsv.gz");
+             BufferedReader in = new BufferedReader(new InputStreamReader(new GZIPInputStream(raw), java.nio.charset.StandardCharsets.UTF_8), 1 << 16)) {
+            for (String line; (line = in.readLine()) != null; ) {
+                int tab = line.indexOf('\t');
+                if (tab <= 0) continue;
+                insert.clearBindings();
+                insert.bindString(1, line.substring(0, tab));
+                insert.bindNull(2);
+                insert.bindString(3, line.substring(tab + 1).replace("\\n", "\n"));
+                insert.bindNull(4);
+                insert.executeInsert();
+            }
+            d.setTransactionSuccessful();
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        } finally {
+            d.endTransaction();
+            insert.close();
+            d.close();
         }
     }
 
@@ -61,14 +102,19 @@ final class Dict {
     static String normalize(String raw) {
         String w = raw.trim().replace('’', '\'').toLowerCase(Locale.ROOT);
         if (w.endsWith("'s")) w = w.substring(0, w.length() - 2);
-        return w.replaceAll("^[^a-z]+|[^a-z]+$", "");
+        return w.replaceAll("\\s+", " ").replaceAll("^[^a-z]+|[^a-z]+$", "");
     }
 
-    private String[] entry(String w) {
-        try (Cursor c = db.rawQuery("SELECT phonetic, trans, rank FROM entry WHERE word=?", new String[]{w})) {
+    private String[] entryFrom(SQLiteDatabase source, String w) {
+        try (Cursor c = source.rawQuery("SELECT phonetic, trans, rank FROM entry WHERE word=?", new String[]{w})) {
             if (!c.moveToFirst()) return null;
             return new String[]{c.getString(0), c.getString(1), c.isNull(2) ? null : String.valueOf(c.getInt(2))};
         }
+    }
+
+    private String[] entry(String w) {
+        String[] e = entryFrom(db, w);
+        return e != null ? e : entryFrom(extra, w);
     }
 
     private String[] form(String w) {
@@ -123,15 +169,24 @@ final class Dict {
         if (q.isEmpty()) return out;
         String[] f = form(q);
         if (f != null) out.put(new JSONObject().put("w", f[0]).put("m", q + " 的" + kindLabel(f[1])).put("q", q));
-        try (Cursor c = db.rawQuery("SELECT word, trans FROM entry WHERE word >= ? AND word < ? ORDER BY word = ? DESC, rank IS NULL, rank, length(word) LIMIT 13",
-                new String[]{q, q + "￿", q})) {
-            while (c.moveToNext() && out.length() < 12) {
-                if (f != null && c.getString(0).equals(f[0])) continue;
-                out.put(new JSONObject().put("w", c.getString(0)).put("m", firstSense(c.getString(1))));
-            }
-        }
+        String tableFilter = q.indexOf(' ') >= 0 ? "instr(word, ' ') > 0" : "instr(word, ' ') = 0";
+        prefixFrom(db, tableFilter, q, f, out);
+        if (out.length() < 12) prefixFrom(extra, tableFilter, q, f, out);
         Log.i("ShubianPerf", "prefix " + (System.nanoTime() - t0) / 1000 + "us");
         return out;
+    }
+
+    private void prefixFrom(SQLiteDatabase source, String tableFilter, String q, String[] form, JSONArray out) throws JSONException {
+        try (Cursor c = source.rawQuery("SELECT word, trans FROM entry WHERE " + tableFilter + " AND word >= ? AND word < ? ORDER BY word = ? DESC, rank IS NULL, rank, length(word) LIMIT 13",
+                new String[]{q, q + "￿", q})) {
+            while (c.moveToNext() && out.length() < 12) {
+                String word = c.getString(0);
+                if (form != null && word.equals(form[0])) continue;
+                boolean seen = false;
+                for (int i = 0; i < out.length(); i++) if (out.getJSONObject(i).optString("w").equals(word)) { seen = true; break; }
+                if (!seen) out.put(new JSONObject().put("w", word).put("m", firstSense(c.getString(1))));
+            }
+        }
     }
 
     /** Every surface form of the given lemmas, for marking saved words in book text. */

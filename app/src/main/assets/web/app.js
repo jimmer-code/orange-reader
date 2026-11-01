@@ -1339,6 +1339,9 @@ function toggleTargetSave(target, type, btn) {
 function targetTabs(type) {
   return `<div class="target-tabs" role="tablist" aria-label="阅读单位">${[["word", "词"], ["phrase", "短语"], ["sentence", "句子"]].map(([k, t]) => `<button data-target-tab="${k}" aria-selected="${type === k}">${t}</button>`).join("")}</div>`;
 }
+function offlinePhraseHTML(info) {
+  return info.found ? info.lines.map(([p, m]) => esc((p ? p + " " : "") + m)).join("<br>") : "";
+}
 function renderReadingTarget(target, type, sr) {
   if (!R) return;
   const phraseText = target.phraseText || target.text, displayText = type === "sentence" ? (target.sentence || phraseText) : type === "word" ? (target.focusWord || tokensOf(phraseText)[0] || phraseText) : phraseText;
@@ -1351,15 +1354,18 @@ function renderReadingTarget(target, type, sr) {
   if (type === "word") {
     body = wordHTML(lookupWord(target.focusWord || target.tokens[0] || target.text), { sentence: target.sentence, close: true });
   } else {
+    const phraseInfo = type === "phrase" ? lookupWord(target.text) : null;
+    const offline = phraseInfo && offlinePhraseHTML(phraseInfo);
     const map = type === "phrase" ? savedPhrases : savedQuotes, on = map.has(targetKey(target, type));
     const label = type === "phrase" ? "短语" : "句子", action = on ? `已保存${label}` : `保存${label}`;
     body = `<div class="target-body"><div class="target-kind">${label}</div><div class="trx src">${esc(target.text)}</div>
-      <div class="trx target-out" id="rt-out">${N.hasTr() ? "…" : "未配置整句翻译"}</div>
+      <div class="trx target-out" id="rt-out">${offline || (N.hasTr() ? "…" : "未配置整句翻译")}</div>
       <div class="target-context">${type === "phrase" ? "参考所在句理解，但只翻译选中的短语。" : "参考书名和所在段落理解指代。"}</div>
       <div class="acts"><button class="pill ${on ? "done" : "alt"}" data-target-save="${type}">${action}</button></div></div>`;
+    resolved.offline = !!offline;
   }
   showCard(`<div class="grab"></div><div class="reading-target">${targetTabs(type)}${body}</div>`, anchor);
-  if (type !== "word" && N.hasTr()) translateText(target.text, $("#rt-out", R.lk), target.sentence);
+  if (type !== "word" && N.hasTr() && !resolved.offline) translateText(target.text, $("#rt-out", R.lk), target.sentence);
 }
 
 /* ---------- 阅读中查词 ---------- */

@@ -7,6 +7,7 @@ Also reads tools/supplement.tsv: extra senses for literary or archaic words
 that ECDICT lacks (word<TAB>line to append to its translation).
 """
 import csv
+import gzip
 import os
 import re
 import sqlite3
@@ -15,10 +16,14 @@ import sys
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(ROOT, "cache")
 OUT = os.path.join(ROOT, "..", "app", "src", "main", "assets", "dict.db")
+EXTRA_OUT = os.path.join(ROOT, "..", "app", "src", "main", "assets", "dict_extra.tsv.gz")
 TOP = 60000
+PHRASE_HEADS = 5000
+PHRASE_WORDS = 4
+EXTRA_WORD_MAX = 8
 TAGS = {"zk", "gk", "cet4", "cet6", "ky", "toefl", "ielts", "gre"}
 KINDS = {"p", "d", "i", "3", "s", "r", "t"}
-WORD_RE = re.compile(r"^[a-z][a-z'\-]*$")
+WORD_RE = re.compile(r"^[a-z][a-z'\-]*(?: [a-z][a-z'\-]*)*$")
 
 
 def rank_of(row):
@@ -37,7 +42,7 @@ def main():
     with open(os.path.join(CACHE, "ecdict.csv"), newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             w = row["word"]
-            if " " in w or not w or w.isdigit():
+            if not w or w.isdigit():
                 continue
             if len(w) > 1 and w.isupper():
                 continue
@@ -56,7 +61,8 @@ def main():
             rows[lw] = {"orig": w, "phonetic": clean_phonetic(row["phonetic"] or ""), "trans": trans,
                         "rank": r, "extra": keep_extra, "exchange": row["exchange"] or ""}
 
-    ranked = sorted((v["rank"], k) for k, v in rows.items() if v["rank"])
+    ranked = sorted((v["rank"], k) for k, v in rows.items() if v["rank"] and " " not in k)
+    common_heads = {k for _, k in ranked[:PHRASE_HEADS]}
     keep = {k for _, k in ranked[:TOP]} | {k for k, v in rows.items() if v["extra"]}
 
     sup_path = os.path.join(ROOT, "supplement.tsv")
@@ -110,8 +116,9 @@ def main():
                 add_form(w, w[: -len(suf)], kind)
                 break
 
-    if os.path.exists(OUT):
-        os.remove(OUT)
+    for path in (OUT, OUT + ".gz", EXTRA_OUT):
+        if os.path.exists(path):
+            os.remove(path)
     db = sqlite3.connect(OUT)
     db.executescript("""
         CREATE TABLE entry (word TEXT PRIMARY KEY, phonetic TEXT, trans TEXT NOT NULL, rank INTEGER) WITHOUT ROWID;
@@ -126,7 +133,15 @@ def main():
     n_entry = db.execute("SELECT count(*) FROM entry").fetchone()[0]
     n_form = db.execute("SELECT count(*) FROM form").fetchone()[0]
     db.close()
-    print(f"entries {n_entry}, forms {n_form}, size {os.path.getsize(OUT) / 1e6:.1f} MB")
+
+    extra_keep = {k for k in rows if k not in keep and " " not in k and len(k) <= EXTRA_WORD_MAX}
+    extra_keep |= {k for k in rows if " " in k and len(k.split()) <= PHRASE_WORDS and k.split()[0] in common_heads}
+    assert "by and large" in extra_keep
+    with gzip.open(EXTRA_OUT, "wt", encoding="utf-8", newline="") as out:
+        for w in sorted(extra_keep):
+            out.write(w + "\t" + rows[w]["trans"].replace("\n", "\\n") + "\n")
+    phrase_count = sum(" " in w for w in extra_keep)
+    print(f"entries {n_entry}, forms {n_form}, extra entries {len(extra_keep)}, phrases {phrase_count}, extra compressed {os.path.getsize(EXTRA_OUT) / 1e6:.1f} MB")
 
 
 def check(db):

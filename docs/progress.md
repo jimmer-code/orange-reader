@@ -101,3 +101,10 @@
 - 双页布局改为只在宽屏横屏生效。宽屏竖屏强制单页，旋转回横屏后恢复原来的双页开关；外屏原有单页行为不变。
 - 版本升到 1.3 / versionCode 4。规则按窗口宽高和 600dp 断点判断，不按设备型号判断，因此小米 18 Fold 内屏和小米 K Pad 都能在横屏双页、竖屏单页之间自动切换。
 - 检查：`node --check app/src/main/assets/web/app.js`，并复用本轮 Gradle 构建检查；设备截图待 Fold_DS_API36 或小米 K Pad 连接后按 §9 补拍。
+
+## M13 离线词汇与短语覆盖
+- 审计结果：原词库有 58,068 个核心词条和 50,082 个变形，ECDICT 中有词频的数据基本已覆盖；原构建脚本完全排除了多词短语。
+- 词库改为核心 SQLite 加压缩长尾资产。当前离线支持 58,068 个核心词条、约 138,000 个额外短词条、约 151,900 条短语，并保留 50,082 个核心变形。长尾资产首次启动时导入应用私有 SQLite，后续查询仍是本地 SQLite。
+- 阅读器选中的短语先查本地词库，命中时直接显示离线释义，查不到才使用整句翻译；查词页输入带空格的短语也能给出本地候选。
+- 版本升到 1.4 / versionCode 5。release APK 仍控制在 25 MB 内。
+- 检查：`python3 tools/build_dict.py && node --check app/src/main/assets/web/app.js && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；词库构建断言通过，release APK 体积 24,901,621 bytes。
