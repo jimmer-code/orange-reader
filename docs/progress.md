@@ -89,6 +89,7 @@
 - 偏差：本轮采用可连续消费的翻页队列，尚未实现手指直接拖拽页面曲面的完全跟手中断；仿真翻页仍在每页动画之间快速衔接。
 
 ## M11 在线更新
+- Commit：`da19c46`。
 - 设置页新增「在线更新」入口。点击后从 `https://update.lemonation.cloud/shubian-translate/latest.json` 检查版本；清单限定 HTTPS、域名和路径，并校验版本号、文件大小和 SHA-256。
 - 新版本下载到应用私有外部目录，下载完成后通过自定义 `UpdateProvider` 提供 `content://` URI，交给 Android 系统安装器完成覆盖安装；没有安装未知应用权限时引导到系统设置。
 - 版本升到 1.2 / versionCode 3。复用 Fold DS 的更新站点，在 `/shubian-translate/` 下独立保存清单和最近两个 APK；发布脚本为 `tools/publish_update.sh`。线上 1.2 APK 已核对大小和 SHA-256。
