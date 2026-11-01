@@ -56,7 +56,7 @@ testdata/                测试用 ePub 和书页照片
 
 - 按当前窗口宽度分两档：小于 600dp 为紧凑（外屏），600dp 及以上为宽屏（内屏）。不要按设备型号判断。
 - 主 Activity 和阅读器在 manifest 里声明 `configChanges="screenSize|smallestScreenSize|screenLayout|orientation|density"`，自己处理折叠和展开，不重建；切换后重新布局，保留输入内容、选中的词和阅读位置。
-- 紧凑：底部标签栏（查单词、书库、生词本）。宽屏：左侧 208dp 侧栏，顶部显示 App 名。
+- 紧凑：底部标签栏（查单词、书库、生词本）。宽屏：左侧 208dp 侧栏，顶部显示 App 名。宽屏横屏阅读器默认双页，宽屏竖屏阅读器始终单页。
 - 支持横竖屏，不锁方向。
 
 ## 3. 功能规格
@@ -142,7 +142,7 @@ Jev 返回的概率不在界面上显示。
 - 每章一个 XHTML，放在 WebView 里。资源通过 `shouldInterceptRequest` 从 zip 里读，域名用 `https://book.local/`。
 - 注入的 CSS 控制主题颜色、字体、字号、行高 1.62、两端对齐、自动断字（`hyphens: auto`，`lang` 取自书的语言）、首行缩进 1.5em、章首首字下沉，并用 CSS 多栏分页。页面四周边距按原型。
 - 关掉 WebView 自带的文字选择和长按菜单，长按、点击、滑动都由原生代码处理。
-- 宽屏默认双页：一屏两栏，中间有书脊阴影。设置里可以关掉。
+- 宽屏横屏默认双页：一屏两栏，中间有书脊阴影；设置里可以关掉。宽屏竖屏始终单页，旋转回横屏后恢复双页设置。
 
 **版面**
 - 顶部居中是当前章节名（12sp，`r-muted` 色），底部居中是页码。全书页码在后台分页完成前先不显示；分页结果按（书、字号、字体、屏幕尺寸）缓存。
@@ -220,6 +220,7 @@ Jev 返回的概率不在界面上显示。
 - 读者水平：多行文本，默认「Chinese native speaker reading English novels; passed CET-6 (about 6000 English words); comfortable with everyday and news vocabulary, weak on literary, archaic and nautical words.」。
 - 音量键翻页：开关。
 - 清除「认识」记录：需要确认。
+- 在线更新：从 `https://update.lemonation.cloud/shubian-translate/latest.json` 检查新版本；下载后校验文件大小和 SHA-256，再交给 Android 系统安装器覆盖安装。
 - 关于：版本号、词典来源 ECDICT（MIT）、字体许可。
 
 ### 3.9 整句翻译与「问 AI」（最后做）

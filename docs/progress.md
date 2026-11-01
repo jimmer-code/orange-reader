@@ -95,3 +95,8 @@
 - 版本升到 1.2 / versionCode 3。复用 Fold DS 的更新站点，在 `/shubian-translate/` 下独立保存清单和最近两个 APK；发布脚本为 `tools/publish_update.sh`。线上 1.2 APK 已核对大小和 SHA-256。
 - 检查：`node --check app/src/main/assets/web/app.js && bash -n tools/publish_update.sh && /Users/jimmymacmini/ops-hub/bin/ops docs && ./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；`apksigner verify` 和 `zipalign -c -P 16 4` 通过；线上清单与本地 release APK 大小和 SHA-256 一致。
 - 偏差：在线更新是本次新增需求，不在原 M1 到 M6 里程碑内；当前没有连接 Fold_DS_API36 或实体设备，因此系统安装器的最后一步未做设备实测，下载、校验和清单端到端已在本机与线上节点核对。
+
+## M12 阅读器方向适配
+- 双页布局改为只在宽屏横屏生效。宽屏竖屏强制单页，旋转回横屏后恢复原来的双页开关；外屏原有单页行为不变。
+- 版本升到 1.3 / versionCode 4。规则按窗口宽高和 600dp 断点判断，不按设备型号判断，因此小米 18 Fold 内屏和小米 K Pad 都能在横屏双页、竖屏单页之间自动切换。
+- 检查：`node --check app/src/main/assets/web/app.js`，并复用本轮 Gradle 构建检查；设备截图待 Fold_DS_API36 或小米 K Pad 连接后按 §9 补拍。

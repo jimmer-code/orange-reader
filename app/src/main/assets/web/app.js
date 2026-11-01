@@ -195,6 +195,7 @@ function fit() {
   st.screen = innerWidth >= 600 ? "inner" : "outer";
   scr.classList.toggle("outer", st.screen === "outer"); scr.classList.toggle("inner", st.screen === "inner");
 }
+function spreadAvailable() { return st.screen === "inner" && innerWidth > innerHeight; }
 
 let toastT;
 function toast(msg) { toastEl.textContent = msg; toastEl.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove("on"), 1600); }
@@ -789,7 +790,7 @@ function closeBook() {
 /* ---------- 分页 ---------- */
 function geometry() {
   const [W, H] = dims();
-  const spread = st.screen === "inner" && st.spread;
+  const spread = spreadAvailable() && st.spread;
   const side = { s: [20, 40], m: [30, 60], l: [44, 84] }[st.margin][spread ? 1 : 0];
   const g = spread ? { top: 58, bottom: 52, side, gap: 84 } : { top: 60, bottom: 52, side, gap: 60 };
   // 单页时限制行长，每行约 65–75 个字符
@@ -1516,7 +1517,7 @@ function openThemes() {
         <div class="opt"><span>两端对齐</span><button class="switch" role="switch" data-sw="justify" aria-checked="${st.justify}" aria-label="两端对齐"></button></div>
         <div class="opt"><span>原书排版</span><button class="switch" role="switch" data-sw="pub" aria-checked="${st.pub}" aria-label="原书排版"></button></div>
         <div class="opt"><span>翻页</span>${seg("turn", [["curl", "仿真"], ["slide", "滑动"], ["fade", "淡入"], ["none", "无"]])}</div>
-        ${st.screen === "inner" ? `<div class="opt"><span>双页</span><button class="switch" role="switch" data-spread aria-checked="${st.spread}" aria-label="双页"></button></div>` : ""}
+        ${spreadAvailable() ? `<div class="opt"><span>双页</span><button class="switch" role="switch" data-spread aria-checked="${st.spread}" aria-label="双页"></button></div>` : ""}
       </div>
     </div>`);
 }
