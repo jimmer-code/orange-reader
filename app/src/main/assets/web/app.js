@@ -1528,6 +1528,7 @@ function openSettings() {
     <div class="sh-body">
       <div class="opts" style="margin-top:0">
         <div class="opt"><span>Jev 判断生词</span><button class="txt-btn" data-st="testjev">测试连接</button></div>
+        <div class="opt"><span>在线更新</span><button class="txt-btn" data-st="update" data-update-state="idle">检查更新</button></div>
         <div class="opt"><span>音量键翻页</span><button class="switch" role="switch" data-st="volume" aria-checked="${!!settings.volume}" aria-label="音量键翻页"></button></div>
       </div>
       <label class="fl"><span>读者水平</span><textarea class="field" data-sf="level">${esc(settings.level)}</textarea></label>
@@ -1535,6 +1536,24 @@ function openSettings() {
       <div class="about">书边译 ${esc(N.version())}<br>词典 ECDICT，MIT 许可<br>字体 Literata、Source Serif 4，SIL Open Font License</div>
     </div>`, "", () => {});
 }
+
+handlers.update = d => {
+  const b = sheet.querySelector('[data-st="update"]');
+  if (!b) return;
+  const state = d.state || "error";
+  b.dataset.updateState = state;
+  b.disabled = state === "checking" || state === "downloading";
+  if (state === "checking") b.textContent = "正在检查";
+  else if (state === "available") {
+    b.disabled = false;
+    b.textContent = `更新到 ${d.version}`;
+    toast(d.notes ? `发现新版本 ${d.version}：${d.notes}` : `发现新版本 ${d.version}`);
+  } else if (state === "downloading") b.textContent = `${d.percent || 0}%`;
+  else if (state === "ready") b.textContent = "已打开安装器";
+  else if (state === "permission") { b.disabled = false; b.textContent = "允许后再试"; toast(d.msg || "请允许安装未知应用"); }
+  else if (state === "current") { b.disabled = false; b.textContent = "已是最新"; toast("当前已是最新版本"); }
+  else { b.disabled = false; b.dataset.updateState = "idle"; b.textContent = "检查更新"; toast(d.msg || "检查更新失败"); }
+};
 sheet.addEventListener("change", e => {
   const f = e.target.closest("[data-sf]"); if (!f) return;
   settings[f.dataset.sf] = f.value.trim() || DEFAULT_LEVEL;
@@ -1556,6 +1575,13 @@ sheet.addEventListener("click", async e => {
   const s = e.target.closest("[data-st]");
   if (s) {
     if (s.dataset.st === "volume") { settings.volume = !settings.volume; s.setAttribute("aria-checked", settings.volume); kv.set("settings", settings); }
+    else if (s.dataset.st === "update") {
+      if (s.dataset.updateState === "available") {
+        s.dataset.updateState = "downloading"; s.disabled = true; s.textContent = "准备下载"; N.installUpdate();
+      } else {
+        s.dataset.updateState = "checking"; s.disabled = true; s.textContent = "正在检查"; N.checkUpdate();
+      }
+    }
     else if (s.dataset.st === "clearknown") {
       if (!known.size) return;
       if (s.textContent !== "确认清除") { s.textContent = "确认清除"; return; }

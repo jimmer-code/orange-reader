@@ -9,6 +9,8 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
+import android.provider.Settings;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
@@ -46,6 +48,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -62,6 +65,7 @@ public abstract class WebActivity extends Activity {
     protected final Handler main = new Handler(Looper.getMainLooper());
     protected final ExecutorService io = Executors.newSingleThreadExecutor();
     private final ExecutorService net = Executors.newCachedThreadPool();
+    private final AtomicReference<JSONObject> latestUpdate = new AtomicReference<>();
     private final Map<String, ZipFile> zips = new HashMap<>();
     private TextToSpeech tts;
     private volatile boolean ttsReady, ttsFailed, reading;
@@ -366,6 +370,39 @@ public abstract class WebActivity extends Activity {
         @JavascriptInterface public String version() {
             try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { return ""; }
         }
+        @JavascriptInterface public long versionCode() {
+            try {
+                android.content.pm.PackageInfo p = getPackageManager().getPackageInfo(getPackageName(), 0);
+                return Build.VERSION.SDK_INT >= 28 ? p.getLongVersionCode() : p.versionCode;
+            } catch (Exception e) { return 0; }
+        }
+        @JavascriptInterface public void checkUpdate() {
+            net.execute(() -> {
+                try {
+                    JSONObject m = AppUpdater.check(versionCode());
+                    latestUpdate.set(m);
+                    emit("update", m);
+                } catch (Exception e) {
+                    emit("update", jsonQuiet("state", "error", "msg", e.getMessage() == null ? "检查更新失败" : e.getMessage()));
+                }
+            });
+        }
+        @JavascriptInterface public void installUpdate() {
+            JSONObject manifest = latestUpdate.get();
+            if (manifest == null || !"available".equals(manifest.optString("state"))) { checkUpdate(); return; }
+            net.execute(() -> {
+                try {
+                    emit("update", jsonQuiet("state", "downloading", "percent", "0"));
+                    File apk = AppUpdater.download(WebActivity.this, manifest, (done, total) -> {
+                        int percent = total > 0 ? (int) Math.min(99, done * 100 / total) : 0;
+                        emit("update", jsonQuiet("state", "downloading", "percent", String.valueOf(percent)));
+                    });
+                    main.post(() -> startUpdateInstaller(apk));
+                } catch (Exception e) {
+                    emit("update", jsonQuiet("state", "error", "msg", e.getMessage() == null ? "下载更新失败" : e.getMessage()));
+                }
+            });
+        }
 
         @JavascriptInterface public void jev(int id, String payload) {
             String key = key();
@@ -426,6 +463,28 @@ public abstract class WebActivity extends Activity {
             ClipData c = cm.getPrimaryClip();
             if (c == null || c.getItemCount() == 0 || c.getItemAt(0).getText() == null) return "";
             return c.getItemAt(0).getText().toString();
+        }
+    }
+
+    private void startUpdateInstaller(File apk) {
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + getPackageName())));
+                emit("update", jsonQuiet("state", "permission", "msg", "请允许安装未知应用后，再点一次更新"));
+            } catch (Exception e) {
+                emit("update", jsonQuiet("state", "error", "msg", "系统不允许安装更新"));
+            }
+            return;
+        }
+        Uri u = UpdateProvider.uri(apk, "app.shubian.updates");
+        Intent i = new Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivity(i);
+            emit("update", jsonQuiet("state", "ready", "msg", "正在打开安装器"));
+        } catch (Exception e) {
+            emit("update", jsonQuiet("state", "error", "msg", "找不到系统安装器"));
         }
     }
 }
