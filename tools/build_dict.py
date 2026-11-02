@@ -7,7 +7,6 @@ Also reads tools/supplement.tsv: extra senses for literary or archaic words
 that ECDICT lacks (word<TAB>line to append to its translation).
 """
 import csv
-import gzip
 import os
 import re
 import sqlite3
@@ -16,7 +15,7 @@ import sys
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(ROOT, "cache")
 OUT = os.path.join(ROOT, "..", "app", "src", "main", "assets", "dict.db")
-EXTRA_OUT = os.path.join(ROOT, "..", "app", "src", "main", "assets", "dict_extra.tsv.gz")
+EXTRA_OUT = os.path.join(ROOT, "..", "app", "src", "main", "assets", "dict_extra.tsv")
 TOP = 60000
 PHRASE_HEADS = 5000
 PHRASE_WORDS = 4
@@ -137,11 +136,11 @@ def main():
     extra_keep = {k for k in rows if k not in keep and " " not in k and len(k) <= EXTRA_WORD_MAX}
     extra_keep |= {k for k in rows if " " in k and len(k.split()) <= PHRASE_WORDS and k.split()[0] in common_heads}
     assert "by and large" in extra_keep
-    with gzip.open(EXTRA_OUT, "wt", encoding="utf-8", newline="") as out:
+    with open(EXTRA_OUT, "w", encoding="utf-8", newline="") as out:
         for w in sorted(extra_keep):
             out.write(w + "\t" + rows[w]["trans"].replace("\n", "\\n") + "\n")
     phrase_count = sum(" " in w for w in extra_keep)
-    print(f"entries {n_entry}, forms {n_form}, extra entries {len(extra_keep)}, phrases {phrase_count}, extra compressed {os.path.getsize(EXTRA_OUT) / 1e6:.1f} MB")
+    print(f"entries {n_entry}, forms {n_form}, extra entries {len(extra_keep)}, phrases {phrase_count}, extra {os.path.getsize(EXTRA_OUT) / 1e6:.1f} MB")
 
 
 def check(db):

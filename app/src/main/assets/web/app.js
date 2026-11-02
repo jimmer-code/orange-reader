@@ -1456,9 +1456,11 @@ function markSaved() {
   if (!lemmas.length) return;
   const key = lemmas.join(",");
   if (key !== formsKey) {
+    // 词库暂时取不到时跳过标记；这里抛异常会让整章排版中断，翻页和取词一起失效
+    let forms;
+    try { forms = [...new Set(JSON.parse(N.formsOf(JSON.stringify(lemmas))))]; } catch (e) { return; }
     formsKey = key;
-    const forms = [...new Set(JSON.parse(N.formsOf(JSON.stringify(lemmas))))].sort((a, b) => b.length - a.length);
-    formsRe = new RegExp("\\b(" + forms.map(f => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "gi");
+    formsRe = new RegExp("\\b(" + forms.sort((a, b) => b.length - a.length).map(f => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "gi");
   }
   const nodes = [], w = document.createTreeWalker(R.flow, NodeFilter.SHOW_TEXT);
   for (let n; (n = w.nextNode());) { formsRe.lastIndex = 0; if (formsRe.test(n.nodeValue)) nodes.push(n); }

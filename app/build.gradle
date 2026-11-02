@@ -16,8 +16,8 @@ android {
         applicationId 'app.shubian'
         minSdk 33
         targetSdk 36
-        versionCode 7
-        versionName '1.6'
+        versionCode 8
+        versionName '1.7'
         ndk { abiFilters 'arm64-v8a' }
         buildConfigField 'String', 'OPENCODE_KEY', '"' + opencodeKey + '"'
     }
@@ -35,7 +35,7 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
-    androidResources { noCompress 'db', 'gz' }
+    androidResources { noCompress 'db' }
     buildFeatures { buildConfig true }
     lint { disable 'SetJavaScriptEnabled', 'JavascriptInterface' }
 }

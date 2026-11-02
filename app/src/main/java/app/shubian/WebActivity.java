@@ -81,6 +81,11 @@ public abstract class WebActivity extends Activity {
         super.onCreate(b);
         createdAt = System.currentTimeMillis();
         store = new Store(this);
+        // 长尾词库首次启动要写入约 17 MB SQLite；提前在后台建好，避免第一次查词时卡住页面
+        io.execute(() -> {
+            try { Dict.get(getApplicationContext()); }
+            catch (Exception e) { Log.w("Shubian", "dictionary warm-up failed", e); }
+        });
         getWindow().setDecorFitsSystemWindows(false);
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) WebView.setWebContentsDebuggingEnabled(true);
         FrameLayout root = new FrameLayout(this);

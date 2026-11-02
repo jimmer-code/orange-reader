@@ -17,9 +17,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Locale;
-import java.util.zip.GZIPInputStream;
 
-/** Offline ECDICT lookup. The core db and long-tail db ship in assets and are copied once per app version. */
+/** Offline ECDICT lookup. The core db ships as SQLite; the long tail ships as a TSV and is imported once per app version. */
 final class Dict {
     private static final int VERSION = 5;
     private static Dict instance;
@@ -61,12 +60,13 @@ final class Dict {
         if (f.exists() && !f.delete()) throw new IllegalStateException("无法更新离线词库");
         SQLiteDatabase d = SQLiteDatabase.openOrCreateDatabase(f, null);
         d.execSQL("PRAGMA synchronous=OFF");
-        d.execSQL("PRAGMA journal_mode=OFF");
+        // PRAGMA journal_mode returns a row; execSQL rejects row-returning statements on Android.
+        try (Cursor jm = d.rawQuery("PRAGMA journal_mode=OFF", null)) { jm.moveToFirst(); }
         d.execSQL("CREATE TABLE entry (word TEXT PRIMARY KEY, phonetic TEXT, trans TEXT NOT NULL, rank INTEGER) WITHOUT ROWID");
         android.database.sqlite.SQLiteStatement insert = d.compileStatement("INSERT INTO entry VALUES (?,?,?,?)");
         d.beginTransaction();
-        try (InputStream raw = c.getAssets().open("dict_extra.tsv.gz");
-             BufferedReader in = new BufferedReader(new InputStreamReader(new GZIPInputStream(raw), java.nio.charset.StandardCharsets.UTF_8), 1 << 16)) {
+        try (InputStream raw = c.getAssets().open("dict_extra.tsv");
+             BufferedReader in = new BufferedReader(new InputStreamReader(raw, java.nio.charset.StandardCharsets.UTF_8), 1 << 16)) {
             for (String line; (line = in.readLine()) != null; ) {
                 int tab = line.indexOf('\t');
                 if (tab <= 0) continue;
