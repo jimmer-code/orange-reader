@@ -115,3 +115,19 @@
 - 修复阅读器长按跨行单词时可能命中前一个词的问题。取词现在检查触点附近候选词各自的字符矩形，不再使用跨行后的联合矩形。
 - 版本升到 1.6 / versionCode 7，收紧取词补判，避免影响普通翻页手势。
 - 检查：`node --check app/src/main/assets/web/app.js && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
+
+## M15 阅读器翻页回归修复
+- Commit：`eba3a2f`。
+- 现象：更新到 1.4 之后，阅读页滑动翻页会直接跳到下一章，点击左右边缘不翻页，长按不出现查词/翻译卡。
+- 根因：1.4 新增的长尾词库在首次查词时同步建库，用 `execSQL()` 执行 `PRAGMA journal_mode=OFF`；Android 的 `execSQL` 拒绝返回结果行的语句，抛 `SQLiteException`，长尾库永远建不出来。`markSaved()` 每章加载都会调用 `N.formsOf()`，异常中断了 `loadChapter()` 中 `layout()` 之前的分页，`R.pages` 停留在 1、`R.W` 未设置，于是翻页按“章末下一页”处理跳到下一章，点击落不到翻页区，查词卡也显示不出来。
+- 第二个问题：Gradle 打包时会解开 `.gz` 资产并去掉后缀，运行时按 `dict_extra.tsv.gz` 打开必然 `FileNotFoundException`；被上面的 `execSQL` 异常遮住，之前没有暴露。
+- 修复：
+  - `PRAGMA journal_mode` 改用 `rawQuery()` 取结果行。
+  - 长尾资产改为未压缩的 `dict_extra.tsv`；APK 内仍按 deflate 压缩，release APK 24,901,973 bytes，体积基本不变。
+  - `markSaved()` 加保护：词库暂时取不到时跳过生词标记，不再让整章排版中断。
+  - 启动时后台预热词库，首次查词不再阻塞页面（模拟器上首次建库约 3 秒，之后查词正常）。
+- 版本升到 1.7 / versionCode 8。
+- 检查：`node --check app/src/main/assets/web/app.js && python3 tools/build_dict.py && ./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；`apksigner verify` 和 `zipalign -c -P 16 4` 通过。
+- 设备验证：API 36 模拟器（pixel_fold，2208×1840、density 420，WebView 133；原 Fold_DS_API36 AVD 冷启动卡住，改用新建的 `shubian_test36`）。安装 release APK 实测：翻页按钮和滑动都只翻一页、长按出词卡和「翻译整句」、拖动选区出词/短语/句子卡。升级路径（保留旧 `dict_extra.db` 残留）和全新安装都会自动重建词库。
+- 偏差/已知：`tools/build_dict.py` 每次运行生成的 `dict.db` 二进制不同（约 73 条 `form` 映射随 Python 哈希种子变化），是既有问题；本轮未改动词库内容，未提交重新生成的核心词库。
+- 截图：`docs/screens/M15/`。
