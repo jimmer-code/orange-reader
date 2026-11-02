@@ -1088,19 +1088,26 @@ handlers.volume = d => { if (R && !sheet.classList.contains("on")) turn(+d); };
 function wordAt(x, y) {
   const r = document.caretRangeFromPoint(x, y); if (!r) return null;
   const n = r.startContainer; if (n.nodeType !== 3 || !R.flow.contains(n)) return null;
-  const t = n.nodeValue, isL = c => /[A-Za-z]/.test(c), isW = c => /[A-Za-z’'\-]/.test(c);
-  let i = r.startOffset;
-  if (i >= t.length || !isL(t[i])) { if (i > 0 && isL(t[i - 1])) i--; else return null; }
-  let a = i, b = i;
-  while (a > 0 && isW(t[a - 1])) a--;
-  while (b < t.length && isW(t[b])) b++;
-  while (a < b && !isL(t[a])) a++;
-  while (b > a && !isL(t[b - 1])) b--;
-  if (a >= b) return null;
-  const range = document.createRange(); range.setStart(n, a); range.setEnd(n, b);
-  const rc = range.getBoundingClientRect();
-  if (x < rc.left - 8 || x > rc.right + 8 || y < rc.top - 8 || y > rc.bottom + 8) return null;
-  return { node: n, a, b, range };
+  const t = n.nodeValue, i = Math.max(0, Math.min(r.startOffset, t.length));
+  // caretRangeFromPoint can land on the preceding word at a wrapped line break.
+  // Check nearby tokens using their individual client rects instead of the union
+  // rectangle, which spans both lines for a long word.
+  const start = Math.max(0, i - 200), end = Math.min(t.length, i + 200), candidates = [];
+  const re = /[A-Za-z][A-Za-z’'\-]*/g;
+  const slice = t.slice(start, end);
+  for (let m; (m = re.exec(slice));) candidates.push([start + m.index, start + m.index + m[0].length]);
+  candidates.sort((a, b) => Math.abs(((a[0] + a[1]) / 2) - i) - Math.abs(((b[0] + b[1]) / 2) - i));
+  for (const [a, b] of candidates.slice(0, 6)) {
+    const range = document.createRange(); range.setStart(n, a); range.setEnd(n, b);
+    const rects = range.getClientRects();
+    let hit = false;
+    for (let j = 0; j < rects.length; j++) {
+      const rc = rects[j];
+      if (x >= rc.left - 8 && x <= rc.right + 8 && y >= rc.top - 8 && y <= rc.bottom + 8) { hit = true; break; }
+    }
+    if (hit) return { node: n, a, b, range };
+  }
+  return null;
 }
 function sameWord(a, b) { return !!a && !!b && a.node === b.node && a.a === b.a && a.b === b.b; }
 function wrapWord(w) {

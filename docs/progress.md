@@ -109,3 +109,8 @@
 - 阅读器选中的短语先查本地词库，命中时直接显示离线释义，查不到才使用整句翻译；查词页输入带空格的短语也能给出本地候选。
 - 版本升到 1.4 / versionCode 5。release APK 仍控制在 25 MB 内。
 - 检查：`python3 tools/build_dict.py && node --check app/src/main/assets/web/app.js && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；词库构建断言通过，release APK 体积 24,901,621 bytes。
+
+## M14 长单词跨行取词
+- 修复阅读器长按跨行单词时可能命中前一个词的问题。取词现在检查触点附近候选词各自的字符矩形，不再使用跨行后的联合矩形。
+- 版本升到 1.5 / versionCode 6。
+- 检查：`node --check app/src/main/assets/web/app.js && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
