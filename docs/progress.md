@@ -111,7 +111,7 @@
 - 检查：`python3 tools/build_dict.py && node --check app/src/main/assets/web/app.js && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；词库构建断言通过，release APK 体积 24,901,621 bytes。
 
 ## M14 长单词跨行取词
-- Commit：`e9523da`。
+- Commit：`0dc2f1d`。
 - 修复阅读器长按跨行单词时可能命中前一个词的问题。取词现在检查触点附近候选词各自的字符矩形，不再使用跨行后的联合矩形。
 - 版本升到 1.6 / versionCode 7，收紧取词补判，避免影响普通翻页手势。
 - 检查：`node --check app/src/main/assets/web/app.js && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
