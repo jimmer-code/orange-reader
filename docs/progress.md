@@ -165,3 +165,4 @@
 - 行为：点收藏词（含所有变形）弹出词卡；词卡开着时点另一个收藏词直接切换；再点正在查的那个词关闭词卡；双击收藏词仍保持词卡打开。菜单开着时点按先关菜单。长按、拖选、从收藏词上起手的滑动翻页不变。
 - 检查：`node --check app/src/main/assets/web/app.js && git diff --check && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
 - 设备验证（`shubian_test36` 内屏，横屏双页和竖屏单页）：收藏 strait 后，点右页翻页区里的 straits 出词卡且不翻页；点另一处 straits 切换；再点关闭；双击保持打开；点普通词所在的翻页区仍翻页；在收藏词上起手的滑动仍翻一页。测试收藏的词已删除。
+- 发布：2026-11-03 通过 `tools/publish_update.sh` 发布 1.9 / versionCode 10（含 M17、M18），`latest.json` 与下载的 APK（24,903,029 bytes，SHA-256 `302352f2…fb90`）已核对一致。
