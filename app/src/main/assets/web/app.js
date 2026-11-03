@@ -1218,6 +1218,13 @@ function bindReader() {
       if (d.w && Math.hypot(dx, dy) < 40) { const w = wordAt(d.x, d.y); if (w) lookupInBook(wrapWord(w)); }
       return;
     }
+    // 收藏过的词（点状下划线）点一下就查，不用长按；再点正在查的这个词关掉卡片
+    const sv = d.w && !R.menu.classList.contains("on") && d.w.node.parentElement?.closest(".w.sv");
+    if (sv && R.flow.contains(sv)) {
+      lastTap = { t: Date.now(), x: e.clientX, y: e.clientY }; // 紧跟着的第二下按双击查词处理，不会把卡片关掉
+      if (sv.classList.contains("hl") && R.lk.classList.contains("on")) hideLookup(); else lookupInBook(sv);
+      return;
+    }
     const link = d.target?.closest?.("a[data-ch]");
     if (link && R.flow.contains(link) && !R.lk.classList.contains("on") && !R.menu.classList.contains("on")) {
       if (link.classList.contains("nref")) openNote(link); else followLink(link);
