@@ -139,7 +139,7 @@
 - 检查：`node --check app/src/main/assets/web/app.js && git diff --check && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；Chrome 布局引擎验证长词各跨行矩形取词结果一致。
 - 补充修复：内屏查过词再折叠到外屏时，内屏写入的卡片内联 `left`/`bottom` 没有清除，外屏词卡被推到屏幕外。`showCard()` 在外屏改为清掉这两个内联样式。
 - 设备验证：`shubian_test36`（API 36，pixel_fold）。之前 ADB 握手失败是启动方式问题（模拟器挂在其他会话下随会话退出），AVD 本身正常；用 `emulator -avd shubian_test36 -no-snapshot-load -no-snapshot-save -no-window -gpu host -noaudio` 独立启动，约 20 秒就绪。实测：
-  - 内屏双页 3 个章节位置共 40 个连字符断行词（含跨栏的 stud-/ded、带连字符的 over-cautious），上、下半段各首次长按一次，80/80 命中正确单词；断行词前后的普通词也不会被误选；滑动和点击边缘翻页都只翻一页。
+  - 内屏双页（CHAPTER 87 的 7 个双页）共 40 个连字符断行词（含跨栏的 stud-/ded、带连字符的 over-cautious），上、下半段各首次长按一次，80/80 命中正确单词；断行词前后的普通词也不会被误选；滑动和点击边缘翻页都只翻一页。
   - 外屏：释义超出可用高度时只有释义区滚动（实测“pass”释义 227px，可视 157px），“加入生词本 / 翻译整句”固定在底部且可点；内屏查词 → 折叠 → 外屏查词，词卡正常出现。
   - `-gpu swiftshader_indirect` 下外屏词卡周围会出现合成层残影，DOM 中不存在对应元素，换 `-gpu host` 后消失，属于模拟器软件渲染问题。
 - 已知（未改）：词库把 “pass” 映射为 “pas” 的复数，词卡显示 pas 的音标和“复数”标签，是 ECDICT 变形数据的问题。
