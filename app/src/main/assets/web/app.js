@@ -1159,7 +1159,7 @@ function bindReader() {
     const near = lastTap && Date.now() - lastTap.t < 300 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30;
     clearTimeout(tapT); tapT = null;
     const w = st.busy ? null : wordAt(e.clientX, e.clientY);
-    down = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, target: e.target, locked: false, selecting: false, cancelled: false,
+    down = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now(), target: e.target, locked: false, selecting: false, cancelled: false,
       dbl: near && !!w, w, span: null, anchor: null, sel: null, last: null, edge: 0, edgeT: null, active: true };
     try { r.setPointerCapture(e.pointerId); } catch (ignored) { }
     if (down.dbl) { lastTap = null; down.active = false; lookupInBook(wrapWord(w)); down = null; return; }
@@ -1186,7 +1186,8 @@ function bindReader() {
   r.addEventListener("pointermove", e => {
     if (!down || e.pointerId !== down.pointerId) return;
     if (!down.locked) {
-      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 10) cancelBeforeLock(down);
+      // 大屏上按住时手指会滚动几个像素，容差给到 18px；真正的滑动翻页要 40px 以上
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 18) cancelBeforeLock(down);
       return;
     }
     const w2 = wordAt(e.clientX, e.clientY);
@@ -1210,6 +1211,13 @@ function bindReader() {
     if (d.dbl) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { turn(dx < 0 ? 1 : -1); return; }
+    // 按住超过锁定时间却没锁定（手指漂移、没按中词）时不能当成点按去翻页：
+    // 手指还在原词附近就照常查词，否则什么都不做
+    // （词卡或菜单开着时仍走下面的点按逻辑，先把它们关掉）
+    if (Date.now() - d.t >= 360 && !R.lk.classList.contains("on") && !R.menu.classList.contains("on")) {
+      if (d.w && Math.hypot(dx, dy) < 40) { const w = wordAt(d.x, d.y); if (w) lookupInBook(wrapWord(w)); }
+      return;
+    }
     const link = d.target?.closest?.("a[data-ch]");
     if (link && R.flow.contains(link) && !R.lk.classList.contains("on") && !R.menu.classList.contains("on")) {
       if (link.classList.contains("nref")) openNote(link); else followLink(link);
@@ -1417,8 +1425,12 @@ function showCard(html, sr) {
   if (st.screen === "inner") {
     const onLeft = sr.x < R.W / 2;
     const x = R.spread ? (onLeft ? R.W * 0.75 : R.W * 0.25) - 170 : Math.min(R.W - 360, Math.max(20, sr.x - 170));
-    lk.style.left = x + "px"; lk.style.bottom = "64px";
-  } else lk.style.left = lk.style.bottom = "";
+    lk.style.left = x + "px";
+    // 单页时卡片和词在同一栏：词在下半页就把卡片放到上方，并把高度限制在词的另一侧
+    const up = !R.spread && sr.y + sr.h / 2 > R.H / 2;
+    lk.style.top = up ? "64px" : ""; lk.style.bottom = up ? "" : "64px";
+    if (!R.spread) lk.style.maxHeight = (up ? sr.y - 74 : R.H - 74 - sr.y - sr.h) + "px";
+  } else lk.style.left = lk.style.bottom = lk.style.top = "";
   void lk.offsetWidth; lk.classList.add("on");
 }
 /* ---------- 书内链接与注释 ---------- */
