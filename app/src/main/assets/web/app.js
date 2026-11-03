@@ -1418,7 +1418,7 @@ function showCard(html, sr) {
     const onLeft = sr.x < R.W / 2;
     const x = R.spread ? (onLeft ? R.W * 0.75 : R.W * 0.25) - 170 : Math.min(R.W - 360, Math.max(20, sr.x - 170));
     lk.style.left = x + "px"; lk.style.bottom = "64px";
-  }
+  } else lk.style.left = lk.style.bottom = "";
   void lk.offsetWidth; lk.classList.add("on");
 }
 /* ---------- 书内链接与注释 ---------- */
