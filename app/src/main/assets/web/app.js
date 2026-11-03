@@ -748,7 +748,7 @@ async function openBook(id, coverEl) {
   N.reading(true); N.bars(false, true);
   const clips = $$(".rd-clip", r);
   R = { r, clip: clips[0], flow: $(".rd-flow", clips[0]), mclip: clips[1], mflow: $(".rd-flow", clips[1]), turn: $(".rd-turn", r), lk: $(".lk", r), menu: $(".rmenu", r),
-    ch: 0, page: 0, pages: 1, counts: null, tnDirty: true };
+    ch: 0, page: 0, pages: 1, counts: null, tnDirty: true, wordNodes: null, wordNodeIndex: null, wordRects: null };
   bindReader();
   if (coverEl && !reduced) zoomFromCover(coverEl, r);
   else r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: "ease-out" });
@@ -817,6 +817,7 @@ function layout(anchor, opts = {}) {
   });
   $(".ribbon", R.r).style.left = (W - g.side - 26) + "px";
   R.tnDirty = true;
+  R.wordNodes = null; R.wordNodeIndex = null; R.wordRects = null;
   R.pages = pageOf($(".end", R.flow)) + 1;
   if (spread && R.pages % 2) R.pages += 1;
   R.marks = new Map(Object.entries(fragPagesOf(R.flow, R.ch)));
@@ -832,7 +833,7 @@ async function loadChapter(ch, opts = {}) {
   const html = await chapterHTML(ch);
   if (!R) return;
   R.flow.innerHTML = `<section class="ch">${html}</section><span class="end"></span>`;
-  R.ch = ch; R.tnDirty = true;
+  R.ch = ch; R.tnDirty = true; R.wordNodes = null; R.wordNodeIndex = null; R.wordRects = null;
   markSaved();
   layout(opts.off ?? null, opts);
   // 图片加载完成后版面会变，按当前位置重新分页
@@ -1088,28 +1089,41 @@ handlers.volume = d => { if (R && !sheet.classList.contains("on")) turn(+d); };
 function wordAt(x, y) {
   const r = document.caretRangeFromPoint(x, y); if (!r) return null;
   const n = r.startContainer; if (n.nodeType !== 3 || !R.flow.contains(n)) return null;
-  const t = n.nodeValue, isL = c => /[A-Za-z]/.test(c), isW = c => /[A-Za-z’'\-]/.test(c);
-  let i = r.startOffset;
-  if (i >= t.length || !isL(t[i])) { if (i > 0 && isL(t[i - 1])) i--; else return null; }
-  let a = i, b = i;
-  while (a > 0 && isW(t[a - 1])) a--;
-  while (b < t.length && isW(t[b])) b++;
-  while (a < b && !isL(t[a])) a++;
-  while (b > a && !isL(t[b - 1])) b--;
-  if (a >= b) return null;
-  const range = document.createRange(); range.setStart(n, a); range.setEnd(n, b);
-  const hit = rects => { for (let j = 0; j < rects.length; j++) { const rc = rects[j]; if (x >= rc.left - 8 && x <= rc.right + 8 && y >= rc.top - 8 && y <= rc.bottom + 8) return true; } return false; };
-  if (hit(range.getClientRects())) return { node: n, a, b, range };
-  // At a wrapped line break the caret can land on the preceding token. Check only
-  // the next nearby token, keeping ordinary page taps out of selection mode.
-  let next = b;
-  while (next < t.length && !isL(t[next])) next++;
-  if (next < t.length) {
-    let nb = next; while (nb < t.length && isW(t[nb])) nb++;
-    const nr = document.createRange(); nr.setStart(n, next); nr.setEnd(n, nb);
-    if (hit(nr.getClientRects())) return { node: n, a: next, b: nb, range: nr };
+  // caretRangeFromPoint() is allowed to snap to the previous caret at a line
+  // break. Build word rectangles around the returned text node and choose the
+  // rectangle nearest to the actual touch point. This also handles one word
+  // whose Range is split into several client rects by wrapping.
+  if (!R.wordNodes || !R.wordNodeIndex || !R.wordRects || !R.wordNodeIndex.has(n)) {
+    R.wordNodes = [];
+    R.wordNodeIndex = new Map();
+    const tw = document.createTreeWalker(R.flow, NodeFilter.SHOW_TEXT);
+    for (let t; (t = tw.nextNode());) if (t.nodeValue && t.nodeValue.trim()) { R.wordNodeIndex.set(t, R.wordNodes.length); R.wordNodes.push(t); }
+    R.wordRects = new WeakMap();
   }
-  return null;
+  const at = R.wordNodeIndex.get(n); if (at == null) return null;
+  const from = Math.max(0, at - 2), to = Math.min(R.wordNodes.length, at + 3);
+  let best = null;
+  for (let ni = from; ni < to; ni++) {
+    const node = R.wordNodes[ni], text = node.nodeValue;
+    let entries = R.wordRects.get(node);
+    if (!entries || entries.text !== text) {
+      entries = { text, words: [] };
+      const re = /[A-Za-z][A-Za-z’'\-]*/g;
+      for (let m; (m = re.exec(text));) {
+        const range = document.createRange(); range.setStart(node, m.index); range.setEnd(node, m.index + m[0].length);
+        entries.words.push({ a: m.index, b: m.index + m[0].length, range, rects: [...range.getClientRects()] });
+      }
+      R.wordRects.set(node, entries);
+    }
+    for (const word of entries.words) for (const rc of word.rects) {
+      const dx = x < rc.left ? rc.left - x : x > rc.right ? x - rc.right : 0;
+      const dy = y < rc.top ? rc.top - y : y > rc.bottom ? y - rc.bottom : 0;
+      if (dx > 10 || dy > 10) continue;
+      const score = dx * dx + dy * dy + (node === n ? 0 : 0.25);
+      if (!best || score < best.score) best = { node, a: word.a, b: word.b, range: word.range, score };
+    }
+  }
+  return best ? { node: best.node, a: best.a, b: best.b, range: best.range } : null;
 }
 function sameWord(a, b) { return !!a && !!b && a.node === b.node && a.a === b.a && a.b === b.b; }
 function wrapWord(w) {
@@ -1117,13 +1131,14 @@ function wrapWord(w) {
   if (p.classList.contains("w") && w.a === 0 && w.b === w.node.nodeValue.length) return p;
   const s = document.createElement("span"); s.className = "w tmp";
   w.range.surroundContents(s); R.tnDirty = true;
+  R.wordNodes = null; R.wordNodeIndex = null; R.wordRects = null;
   return s;
 }
 function unwrap(s) {
   if (!s || !s.classList.contains("tmp") || !s.parentNode) return;
   const p = s.parentNode;
   while (s.firstChild) p.insertBefore(s.firstChild, s);
-  s.remove(); p.normalize(); R.tnDirty = true;
+  s.remove(); p.normalize(); R.tnDirty = true; R.wordNodes = null; R.wordNodeIndex = null; R.wordRects = null;
 }
 function sentenceOf(span) {
   const block = span.closest("p, li, blockquote, td, h1, h2, h3, h4, div, section") || R.flow;

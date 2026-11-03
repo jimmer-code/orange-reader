@@ -298,6 +298,11 @@ svg { display: block; }
 .inner .lk { width: 340px; border-radius: 18px; padding: 18px 20px; opacity: 0; transform: scale(.94) translateY(8px); pointer-events: none; transition: opacity 220ms ease-out, transform 300ms var(--ease); }
 .inner .lk.on { opacity: 1; transform: none; pointer-events: auto; }
 .outer .lk .grab { margin-bottom: 12px; }
+.outer .lk { display: flex; flex-direction: column; overflow: hidden !important; touch-action: pan-y; }
+.outer .lk > .wd, .outer .lk > .reading-target { min-height: 0; flex: 1 1 auto; }
+.outer .lk > .wd { display: flex; flex-direction: column; }
+.outer .lk > .wd .senses { min-height: 0; flex: 1 1 auto; overflow-y: auto; }
+.outer .lk > .wd .acts, .outer .lk > .reading-target .acts { flex: none; background: var(--bg); padding-top: 8px; }
 .inner .lk .grab { display: none; }
 .reading-target { font-family: var(--f-ui); }
 .target-tabs { display: flex; gap: 2px; padding: 2px; margin: 0 0 14px; border-radius: 10px; background: var(--fill); }

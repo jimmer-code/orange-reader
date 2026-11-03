@@ -131,3 +131,10 @@
 - 设备验证：API 36 模拟器（pixel_fold，2208×1840、density 420，WebView 133；原 Fold_DS_API36 AVD 冷启动卡住，改用新建的 `shubian_test36`）。安装 release APK 实测：翻页按钮和滑动都只翻一页、长按出词卡和「翻译整句」、拖动选区出词/短语/句子卡。升级路径（保留旧 `dict_extra.db` 残留）和全新安装都会自动重建词库。
 - 偏差/已知：`tools/build_dict.py` 每次运行生成的 `dict.db` 二进制不同（约 73 条 `form` 映射随 Python 哈希种子变化），是既有问题；本轮未改动词库内容，未提交重新生成的核心词库。
 - 截图：`docs/screens/M15/`。
+
+## M16 长词取词和外屏词卡体验
+- 版本升到 1.8 / versionCode 9。
+- 长词跨行取词改为按触点命中实际字符矩形，并缓存当前排版的词矩形；换行、翻页、重排和临时高亮会清除缓存，第一次长按直接显示触点所在单词。
+- 外屏阅读词卡把释义列表改成独立滚动区域，底部“加入生词本”操作区固定显示，长释义不会把按钮挤出可见区域。
+- 检查：`node --check app/src/main/assets/web/app.js && git diff --check && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；Chrome 布局引擎验证长词各跨行矩形取词结果一致。
+- 偏差：本机 Fold_DS_API36、shubian_test36 和 Jidoo_API36 在冷启动阶段均未完成 ADB 握手，无法完成本轮 Android 模拟器触摸回归；已保留启动日志，在线发布前继续以可用设备做安装验证。
