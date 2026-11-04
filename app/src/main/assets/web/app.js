@@ -453,18 +453,17 @@ function wordHTML(info, opts) {
   const { lemma, form, word } = info;
   const isSaved = saved.has(lemma);
   const ctx = opts.sentence && N.hasJev() && senseItems(info).length > 1;
-  const trs = opts.sentence && N.hasTr() ? `<button class="pill alt" data-trs>翻译整句</button>` : "";
+  const trs = opts.sentence && N.hasTr() ? `<button class="icbtn trs" data-trs aria-label="翻译整句">文</button>` : "";
+  const saveBtn = info.found ? `<button class="icbtn star${isSaved ? " on" : ""}" data-save="${esc(lemma)}" aria-label="加入生词本">${isSaved ? I.starOn : I.star}</button>` : "";
   const swap = opts.swap ? `<button class="txt-btn" data-swap style="font-size:14px">换边</button>` : "";
-  const head = `<div class="wd-h"><div class="grow"><div class="hw">${esc(lemma)}</div>
+  const head = `<div class="wd-h"><div class="grow"><div class="hwt"><div class="hw">${esc(lemma)}</div>${trs}${saveBtn}</div>
       <div class="ph">${info.phonetic ? `<span>/${esc(info.phonetic)}/</span>` : ""}${N.canSpeak() ? `<button class="say" data-say="${esc(lemma)}" aria-label="朗读">${I.speak}</button>` : ""}${form ? `<span class="note">${esc(word)} 的${form}</span>` : ""}</div></div>
       ${swap}${opts.close ? `<button class="x" data-close aria-label="关闭">${I.x}</button>` : ""}</div>`;
   if (!info.found) return `<div class="wd">${head.replace(`<div class="hw">${esc(lemma)}</div>`, `<div class="hw">${esc(word || lemma)}</div>`)}
-    <p style="font-size:17px;margin:0;color:var(--muted)">词典里没有 ${esc(word || lemma)}</p>
-    ${N.hasTr() ? `<div class="trx" data-ai-out></div><div class="acts"><button class="pill primary" data-ask="${esc(word || lemma)}">问 AI</button>${trs}</div>` : ""}</div>`;
+    <p style="font-size:17px;margin:0;color:var(--muted)">词典里没有 ${esc(word || lemma)}</p></div>`;
   return `<div class="wd">${head}
     ${ctx ? `<div class="ctx loading"><span class="k">本句中</span><span class="v">…</span></div>` : ""}
-    <ol class="senses">${info.lines.map(([p, m], i) => `<li data-i="${i}"><span class="pos">${esc(p)}</span><span>${esc(m)}</span></li>`).join("")}</ol>
-    <div class="acts"><button class="pill ${isSaved ? "done" : "primary"}" data-save="${esc(lemma)}">${isSaved ? I.starOn + "已在生词本" : I.star + "加入生词本"}</button>${trs}</div></div>`;
+    <ol class="senses">${info.lines.map(([p, m], i) => `<li data-i="${i}"><span class="pos">${esc(p)}</span><span>${esc(m)}</span></li>`).join("")}</ol></div>`;
 }
 const ctxCache = new Map(kv.get("ctxcache", []));
 async function resolveCtx(root, info, sentence) {
@@ -506,7 +505,7 @@ function toggleSave(lemma, src, btn, extra = {}) {
     toast("已加入生词本");
   }
   saveSaved();
-  if (btn) { const on = saved.has(lemma); btn.className = "pill " + (on ? "done" : "primary"); btn.innerHTML = on ? I.starOn + "已在生词本" : I.star + "加入生词本"; }
+  if (btn) { const on = saved.has(lemma); btn.className = "icbtn star" + (on ? " on" : ""); btn.innerHTML = on ? I.starOn : I.star; }
   markSaved();
   if (!st.book && st.tab === "words" && st.screen === "outer" && !CARD) renderWords();
 }
@@ -517,8 +516,6 @@ scr.addEventListener("click", e => {
   const targetSave = e.target.closest("[data-target-save]");
   if (targetSave && activeTarget) { toggleTargetSave(activeTarget, targetSave.dataset.targetSave, targetSave); return; }
   if (e.target.closest("[data-trs]") && R) { const hl = $(".w.hl", R.flow); translateInBook(st.lkSentence, rectIn(hl || R.lk), null, hl && blockText(hl)); return; }
-  const ask = e.target.closest("[data-ask]");
-  if (ask) { const out = ask.closest(".wd").querySelector("[data-ai-out]"); ask.closest(".acts").remove(); streamTr(ask.dataset.ask + (st.lkSentence ? "\n句子：" + st.lkSentence : ""), true, out); return; }
   const v = e.target.closest("[data-save]");
   if (v) {
     const lk = v.closest(".lk");
