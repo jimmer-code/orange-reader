@@ -198,3 +198,13 @@
 - CSS：新增 `.hwt`/`.icbtn`/`.icbtn.trs`/`.icbtn.star.on`（收藏中 `#e8930c`）；`.ctx`/`.wd` gap/`.senses` 全部恢复原型值；`.outer .lk` 底 padding 22→14、卡与词缓冲 10→6 保留（不挡词前提下多留两行释义）。
 - 检查：`node --check`、CSS 花括号平衡、headless Chrome 截图核对；`./gradlew assembleRelease` → BUILD SUCCESSFUL。
 - 发布：1.12/13（压矮版）与 1.13/14（图标版）同日经 `tools/publish_update.sh` 推送。
+
+## M23 界面焕新：DSH 像素工坊风格
+- 用户要求把阅读器之外的界面换成 DeepSeek Harness GUI 的视觉风格（字体 + 配色），阅读体验本身不变。
+- 令牌层（`:root`）整套换成 DSH 设计令牌：蓝灰中性色阶（light 页面 `#ffffff`/底卡 `#f5f6f7`，dark `#151517`/`#232324`/`#1f1f21`），hairline 边框 `rgba 10%`，DeepSeek 蓝 accent light `#4176e6`/dark `#7aaaff`，`--accent-text` light `#2f5dc4`。
+- 字体 `--f-ui` 换 DSH 系统字体栈（-apple-system/PingFang SC/MiSans 兜底），未捆绑新字体。
+- 组件面：`.pill` 22→12px、`.act` 14→12、`.qbox` 18→16、`.mini` 段控 9→12/按钮 7→8；`.pill.done` 改浅蓝底+蓝字；收藏星改 amber `#f59e0b`；`.chips` 选中改墨黑底；拍照扫描线/词框高亮橙→蓝；`--danger` 换 `#ef4444`。
+- 阅读器隔离：`.reader` 全部 `--r-*` 不动，只把 `--r-link` 从橙 `#cc4e00/#ff801f` 换成蓝 `#4176e6/#7aaaff`（强调色一致性，属于界面色而非排版）。
+- headless Chrome 截图双主题验证：外屏首页/书库/设置底卡/单词卡、内屏侧边栏+浮卡，均确认无破样式。
+- 检查：`node --check`、CSS 花括号平衡、`assembleRelease` 成功、zipalign OK、manifest sha256 与本地 APK 一致。
+- 发布：1.15 / versionCode 16。
