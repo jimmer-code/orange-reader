@@ -290,20 +290,29 @@ svg { display: block; }
 
 /* 阅读中的查词卡片：外屏底部卡片，内屏浮在另一页上 */
 .lk { position: absolute; z-index: 30; background: var(--bg); color: var(--text); font-family: var(--f-ui); box-shadow: var(--shadow-2); }
-.outer .lk { left: 0; right: 0; bottom: 0; border-radius: 18px 18px 0 0; padding: 0 20px 22px; transform: translateY(105%); transition: transform 360ms var(--ease); }
+.outer .lk { left: 0; right: 0; bottom: 0; border-radius: 18px 18px 0 0; padding: 0 20px 14px; transform: translateY(105%); transition: transform 360ms var(--ease); }
 .outer .lk.on { transform: none; }
 .outer .lk.top { top: 0; bottom: auto; border-radius: 0 0 18px 18px; padding-top: 40px; transform: translateY(-105%); }
 .outer .lk.top.on { transform: none; }
 .outer .lk.top .grab { display: none; }
 .inner .lk { width: 340px; border-radius: 18px; padding: 18px 20px; opacity: 0; transform: scale(.94) translateY(8px); pointer-events: none; transition: opacity 220ms ease-out, transform 300ms var(--ease); }
 .inner .lk.on { opacity: 1; transform: none; pointer-events: auto; }
-.outer .lk .grab { margin-bottom: 12px; }
+.outer .lk .grab { margin-bottom: 8px; }
 .outer .lk { display: flex; flex-direction: column; overflow: hidden !important; touch-action: pan-y; }
 .outer .lk > .wd, .outer .lk > .reading-target { min-height: 0; flex: 1 1 auto; }
 .outer .lk > .wd { display: flex; flex-direction: column; }
 .outer .lk > .wd .senses { min-height: 0; flex: 1 1 auto; overflow-y: auto; }
-.outer .lk > .wd .acts, .outer .lk > .reading-target .acts { flex: none; background: var(--bg); padding-top: 8px; }
+.outer .lk > .wd .acts, .outer .lk > .reading-target .acts { flex: none; background: var(--bg); padding-top: 6px; }
 .inner .lk .grab { display: none; }
+/* 查词卡紧凑化：小屏外屏把按钮和间距压小，释义区多留空间 */
+.lk .acts { margin: 6px 0 0; }
+.lk .pill { height: 36px; padding: 0 14px; font-size: 15px; }
+.lk .pill svg { width: 16px; height: 16px; }
+.lk .ctx { min-height: 0; padding: 7px 10px; }
+.lk .wd { gap: 10px; }
+.lk-card .acts { margin: 8px 0 0; }
+.lk-card .pill { height: 40px; font-size: 16px; }
+.lk-card .sh-body { padding-bottom: calc(16px + var(--sab)); }
 .reading-target { font-family: var(--f-ui); }
 .target-tabs { display: flex; gap: 2px; padding: 2px; margin: 0 0 14px; border-radius: 10px; background: var(--fill); }
 .target-tabs button { flex: 1; height: 34px; border-radius: 8px; color: var(--muted); font-size: 14px; }
@@ -420,7 +429,7 @@ textarea.field { height: auto; min-height: 96px; padding: 10px 14px; line-height
 @media (prefers-color-scheme: dark) { .reader:is([data-theme="original"], [data-theme="bold"]) { --r-link: #ff801f; } }
 .rd-topbar { top: calc(var(--sat) + 6px); }
 .outer .lk.top { padding-top: calc(var(--sat) + 12px); }
-.outer .lk { padding-bottom: calc(22px + var(--sab)); }
+.outer .lk { padding-bottom: calc(14px + var(--sab)); }
 .rd-clip.measure { visibility: hidden; pointer-events: none; z-index: -1; }
 .rd-flow * { max-width: 100%; }
 .rd-flow :is(p, li, dd, blockquote, div) { line-height: var(--r-lh) !important; }

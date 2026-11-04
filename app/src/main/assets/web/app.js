@@ -1426,7 +1426,7 @@ function showCard(html, sr) {
   const atTop = st.screen === "outer" && sr.y > R.H * 0.48;
   lk.style.transition = "none"; lk.classList.toggle("top", atTop); void lk.offsetWidth; lk.style.transition = "";
   // 卡片不能挡住被查的词：高度限制在词上方或下方的空间里，超出时在卡片内滚动
-  lk.style.maxHeight = st.screen === "outer" ? (atTop ? sr.y - 10 : R.H - sr.y - sr.h - 10) + "px" : "";
+  lk.style.maxHeight = st.screen === "outer" ? (atTop ? sr.y - 6 : R.H - sr.y - sr.h - 6) + "px" : "";
   lk.style.overflowY = "auto";
   if (st.screen === "inner") {
     const onLeft = sr.x < R.W / 2;

@@ -182,3 +182,11 @@
 - 输入框点按后的 focus、`clearQuery()` 清空后聚焦、`hadFocus` 重渲染保持焦点的逻辑不变。
 - 检查：`node --check app/src/main/assets/web/app.js` → OK；`./gradlew assembleRelease` → BUILD SUCCESSFUL。
 - 发布：2026-11-04 通过 `tools/publish_update.sh` 发布 1.11 / versionCode 12。
+
+## M21 查词卡紧凑化
+- 用户反馈：外屏点词卡「加入生词本/翻译整句」一行和固定开销太高，释义区被挤压。
+- `.lk` 内：`.acts` 上外边距 16→6、去左右 margin，`.pill` 44→36px/字号 17→15，`.ctx` 去最小高度并减 padding，`.wd` 间距 14→10，grab 下方 12→8，卡底 padding 22→14，卡与词的缓冲 10→6。
+- `.lk-card`（查词弹层）：`.pill` 40px，`.acts` 上边距 8，`.sh-body` 底 padding 16+安全区。
+- 内屏 340px `.lk` 同规则生效，按钮行也变紧凑；`.pane` 侧栏不变。
+- 检查：`node --check`、CSS 花括号平衡、headless Chrome 截图核对布局；`./gradlew assembleRelease` → BUILD SUCCESSFUL。
+- 发布：2026-11-04 通过 `tools/publish_update.sh` 发布 1.12 / versionCode 13。
