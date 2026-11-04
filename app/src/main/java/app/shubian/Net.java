@@ -15,15 +15,17 @@ import java.nio.charset.StandardCharsets;
 /**
  * Jev and chat-completions calls. Keys are added here and never pass through the page.
  * Connections are never disconnect()ed: on Android that closes the socket, and a fresh TLS handshake
- * to opencode.ai costs several hundred ms. Closing the fully read stream returns it to the pool.
+ * costs several hundred ms. Closing the fully read stream returns it to the pool.
  */
 final class Net {
     interface Sink { void chunk(String text); }
 
-    static final String JEV_URL = "https://opencode.ai/zen/v1/systemone";
+    // Jev via OpenRouter (opencode.ai Zen is unreachable where the app runs).
+    // Models: jev-latest or jev-1.13 (not the OpenRouter chat-router typesafe/jev-router).
+    static final String JEV_URL = "https://openrouter.ai/api/v1/systemone";
     static final String CHAT_URL = "https://opencode.ai/zen/go/v1/chat/completions";
     static final String CHAT_MODEL = "deepseek-v4.1-flash";
-    // OpenCode Go rejects chat requests without a session id; one per app run is enough for routing.
+    // One session id per app run is enough for OpenCode Go routing.
     private static final String SESSION = "shubian-" + java.util.UUID.randomUUID();
     private static volatile long lastUse;
 
@@ -35,6 +37,7 @@ final class Net {
         c.setDoOutput(true);
         c.setRequestProperty("Authorization", "Bearer " + key);
         c.setRequestProperty("Content-Type", "application/json");
+        // OpenCode Go rejects chat requests without a session id; OpenRouter ignores the header.
         c.setRequestProperty("x-opencode-session", SESSION);
         try (OutputStream o = c.getOutputStream()) { o.write(body.getBytes(StandardCharsets.UTF_8)); }
         lastUse = System.currentTimeMillis();

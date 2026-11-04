@@ -166,3 +166,11 @@
 - 检查：`node --check app/src/main/assets/web/app.js && git diff --check && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
 - 设备验证（`shubian_test36` 内屏，横屏双页和竖屏单页）：收藏 strait 后，点右页翻页区里的 straits 出词卡且不翻页；点另一处 straits 切换；再点关闭；双击保持打开；点普通词所在的翻页区仍翻页；在收藏词上起手的滑动仍翻一页。测试收藏的词已删除。
 - 发布：2026-11-03 通过 `tools/publish_update.sh` 发布 1.9 / versionCode 10（含 M17、M18），`latest.json` 与下载的 APK（24,903,029 bytes，SHA-256 `302352f2…fb90`）已核对一致。
+
+## M19 Jev 改走 OpenRouter
+- 原因：opencode.ai Zen 在使用环境不可直连，Jev 请求全部失败。OpenRouter（`openrouter.ai/api/v1/systemone`）本机实测可直连且转发完整 Jev systemone 协议。
+- Jev 请求 URL 改为 OpenRouter，模型 `jev-latest`（实测返回 `typesafe/jev-1.14-20261014`，noul+choice 请求 $0.000019，与 SPEC 的 0.00002 一致）；翻译仍走 OpenCode Go，两个 Key 分开注入。
+- `local.properties` 新增 `openrouter.key`（家庭共享站 `jev-api-key` 条目），`BuildConfig.OPENROUTER_KEY` 供 `hasJev()`/`jev()` 使用；`OPENCODE_KEY` 只用于翻译。
+- `Net.open()` 的 `x-opencode-session` 头对 OpenRouter 无害，保留共用发送逻辑。
+- 检查：`node --check app/src/main/assets/web/app.js && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease`。
+- 偏差：Jev 请求体、响应解析、离线兜底均不变；`jev-1.13-free` 免费额度不再使用，Jev 改按 OpenRouter 计费（$0.000019/次）。

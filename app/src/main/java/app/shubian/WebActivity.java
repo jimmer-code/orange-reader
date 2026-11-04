@@ -320,6 +320,11 @@ public abstract class WebActivity extends Activity {
         return BuildConfig.OPENCODE_KEY;
     }
 
+    /** Jev calls go through OpenRouter, which uses its own key. */
+    String jevKey() {
+        return BuildConfig.OPENROUTER_KEY;
+    }
+
     // ---------- bridge ----------
 
     final class Bridge {
@@ -328,7 +333,7 @@ public abstract class WebActivity extends Activity {
         @JavascriptInterface public String formsOf(String lemmas) throws Exception { return Dict.get(WebActivity.this).formsOf(new JSONArray(lemmas)).toString(); }
         @JavascriptInterface public String kvGet(String k) { return store.get(k); }
         @JavascriptInterface public void kvSet(String k, String v) { store.set(k, v); }
-        @JavascriptInterface public boolean hasJev() { return !key().isEmpty(); }
+        @JavascriptInterface public boolean hasJev() { return !jevKey().isEmpty(); }
         @JavascriptInterface public boolean hasTr() { return !key().isEmpty(); }
         /** True while the engine is still starting; false only when no English voice is available. */
         @JavascriptInterface public boolean canSpeak() { return !ttsFailed; }
@@ -410,7 +415,7 @@ public abstract class WebActivity extends Activity {
         }
 
         @JavascriptInterface public void jev(int id, String payload) {
-            String key = key();
+            String key = jevKey();
             net.execute(() -> {
                 long t0 = System.currentTimeMillis();
                 try {

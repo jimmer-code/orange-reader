@@ -76,7 +76,7 @@ dp 按 fold-ds 项目 AVD 使用的 440dpi 估算，需要上真机用 `adb shel
 
 Jev 的概率没有按个人校准，界面只用来排序和分组，不显示数字。0.5 的阈值是起点，用「认识」和收藏的记录调整。
 
-Jev Key：ops-hub 里没有登记，实际在 `~/workspace/sandbox/road-scout-mcp/.env` 的 `TYPESAFE_API_KEY`。手机端在设置里填一次，存在应用私有存储，不进 APK 和 Git。需要真机确认手机网络能访问 `api.typesafe.ai`。
+Jev Key：ops-hub 里没有登记，实际在 `~/workspace/sandbox/road-scout-mcp/.env` 的 `TYPESAFE_API_KEY`。手机端在设置里填一次，存在应用私有存储，不进 APK 和 Git。需要真机确认手机网络能访问 `api.typesafe.ai`。（已过时：`api.typesafe.ai` 对中国大陆返回 451，Zen 也不可达；现走 OpenRouter `openrouter.ai/api/v1/systemone`，Key 在家庭共享站 `jev-api-key` 条目，构建时注入 BuildConfig。）
 
 ## 整句翻译（次要）
 

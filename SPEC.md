@@ -25,7 +25,7 @@
 | 构建 | 提交 Gradle wrapper；AGP、Kotlin 用当前稳定版。release 开 R8 和资源压缩，用本机 debug keystore 签名（自用侧载，保证升级签名一致） |
 | 网络 | `HttpURLConnection` |
 | 存储 | 系统 `android.database.sqlite` |
-| 密钥 | OpenCode Key（Jev 和翻译共用）构建时从本机私有文件注入 BuildConfig（见 AGENTS.md），设置页不输入。不得写进源码、测试、日志或 Git |
+| 密钥 | OpenCode Key（翻译用）与 OpenRouter Key（Jev 用）构建时从本机私有文件注入 BuildConfig（见 AGENTS.md），设置页不输入。不得写进源码、测试、日志或 Git |
 | 版本管理 | 在项目根目录 `git init`，每个里程碑至少一个 commit。`.gitignore` 排除 `build/`、`local.properties`、`*.jks`、`.env` |
 
 本机环境：Android SDK 在 `~/Library/Android/sdk`（platforms 34 到 37，build-tools 36.1.0），JDK 21，Gradle 9.8.1，模拟器 AVD `Fold_DS_API36`（Pixel 9 Pro Fold 外形，API 36，arm64，可折叠）。
@@ -281,7 +281,7 @@ CREATE TABLE form (
 
 ## 5. Jev 接口
 
-- `POST https://opencode.ai/zen/v1/systemone`（OpenCode Zen 转发 Typesafe Jev；Go 套餐不含 Jev，用限时免费的 jev-1.13-free，不扣余额；免费下线后改回 jev-1.13，每次约 $0.00002）
+- `POST https://openrouter.ai/api/v1/systemone`（Typesafe Jev 经 OpenRouter；opencode.ai Zen 不可直连。模型 `jev-latest` 或 `jev-1.13`，每次约 $0.00002；不要填 `typesafe/jev-router`，那是 OpenRouter 的聊天路由模型，不是 systemone 模型）
 - 请求头：`Authorization: Bearer <key>`、`Content-Type: application/json`
 - 超时 20 秒，失败不重试，走离线兜底。
 

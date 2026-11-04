@@ -1,13 +1,15 @@
 plugins { id 'com.android.application' }
 
-// OpenCode key (the user's OpenCode Go account) is compiled in for this personal sideload build but
-// never committed: opencode.key in local.properties. Used for Jev (Zen) and translation (Go).
-def opencodeKey = {
+// API keys are compiled in for this personal sideload build but never committed:
+// opencode.key (OpenCode Go account) for translation, openrouter.key for Jev via OpenRouter.
+def lpProps = {
     def lp = rootProject.file('local.properties')
-    if (!lp.exists()) return ''
+    if (!lp.exists()) return new Properties()
     def p = new Properties(); lp.withInputStream { p.load(it) }
-    return (p.getProperty('opencode.key') ?: '').trim()
+    return p
 }()
+def opencodeKey = (lpProps.getProperty('opencode.key') ?: '').trim()
+def openrouterKey = (lpProps.getProperty('openrouter.key') ?: '').trim()
 
 android {
     namespace 'app.shubian'
@@ -20,6 +22,7 @@ android {
         versionName '1.9'
         ndk { abiFilters 'arm64-v8a' }
         buildConfigField 'String', 'OPENCODE_KEY', '"' + opencodeKey + '"'
+        buildConfigField 'String', 'OPENROUTER_KEY', '"' + openrouterKey + '"'
     }
     signingConfigs {
         release {
