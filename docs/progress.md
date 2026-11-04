@@ -175,3 +175,10 @@
 - 检查：`node --check app/src/main/assets/web/app.js && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；`apksigner verify` 和 `zipalign -c -P 16 4` 通过。
 - 偏差：Jev 请求体、响应解析、离线兜底均不变；`jev-1.13-free` 免费额度不再使用，Jev 改按 OpenRouter 计费（$0.000019/次）。
 - 发布：2026-11-04 通过 `tools/publish_update.sh` 发布 1.10 / versionCode 11，`latest.json` 与本地 APK（24,903,017 bytes，SHA-256 `25f76fd0…2bfa`）已核对一致。
+
+## M20 查单词页不再自动弹出键盘
+- 用户要求：进入查单词页只展示界面，不默认聚焦搜索框、不弹键盘；点输入框才弹。
+- 移除 `focusQuery()` 及其全部调用（`setTab`、`scanCancel`、`closeCam`、`visibilitychange`）；返回 App 可见时不再聚焦，不可见时若键盘开着则收起。
+- 输入框点按后的 focus、`clearQuery()` 清空后聚焦、`hadFocus` 重渲染保持焦点的逻辑不变。
+- 检查：`node --check app/src/main/assets/web/app.js` → OK；`./gradlew assembleRelease` → BUILD SUCCESSFUL。
+- 发布：2026-11-04 通过 `tools/publish_update.sh` 发布 1.11 / versionCode 12。

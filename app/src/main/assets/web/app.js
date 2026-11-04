@@ -243,11 +243,10 @@ function setTab(tab, focus = true) {
   $$(".nav button[data-tab]").forEach(b => b.setAttribute("aria-current", b.dataset.tab === tab));
   $$(".view").forEach(v => { const on = v.id === "v-" + tab; v.hidden = !on; if (on) { v.classList.remove("enter"); void v.offsetWidth; v.classList.add("enter"); } });
   render(tab);
-  if (tab === "physical" && focus) focusQuery();
-  else if (st.kb) N.keyboard(false);
+  // 不自动聚焦搜索框：进入查单词页只展示界面，键盘由用户点输入框再弹
+  if (st.kb) N.keyboard(false);
 }
 function render(tab) { ({ library: renderLibrary, physical: renderPhysical, words: renderWords })[tab](); }
-function focusQuery() { setTimeout(() => { const q = $("#q"); if (q && !st.book && !cam.classList.contains("on")) { q.focus({ preventScroll: true }); N.keyboard(true); } }, 60); }
 if (!CARD) {
   $(".nav").addEventListener("click", e => {
     const b = e.target.closest("button[data-tab]"); if (b) { setTab(b.dataset.tab); return; }
@@ -1728,7 +1727,7 @@ function placePhoto() {
   if (st.screen === "outer") Object.assign(res.style, { left: "0px", width: W + "px", top: box.y + box.h + "px", bottom: "0px", borderLeft: "0" });
   else Object.assign(res.style, { left: W - 380 + "px", width: "380px", top: top + "px", bottom: "0px", borderLeft: "0.5px solid var(--line)" });
 }
-handlers.scanCancel = () => { st.awaitScan = false; if (!cam.classList.contains("on") && st.tab === "physical") focusQuery(); };
+handlers.scanCancel = () => { st.awaitScan = false; };
 handlers.ocr = async r => {
   const s = st.scan; if (!s || !cam.classList.contains("on")) return;
   if (!r.ok) {
@@ -1794,7 +1793,7 @@ function renderScanList() {
     <div class="scroll"><ul class="list">${hard.length ? hard.map(row).join("") : '<li class="empty">这一页没有生词</li>'}${st.more ? '<li><div class="sec-s" style="padding-left:0">可能认识</div></li>' + maybe.map((x, i) => row(x, i + hard.length)).join("") : ""}</ul>
     ${maybe.length ? `<button class="more" data-c="more">${st.more ? "收起" : `还有 ${maybe.length} 个可能认识的词`}</button>` : ""}</div>`;
 }
-function closeCam() { cam.classList.remove("on"); st.scan = null; if (st.tab === "physical") focusQuery(); }
+function closeCam() { cam.classList.remove("on"); st.scan = null; }
 if (!CARD) {
   cam.addEventListener("click", e => {
     const c = e.target.closest("[data-c]");
@@ -1888,9 +1887,9 @@ async function startCard() {
   cardFor(q);
 }
 
-// 回到 App 时，停在查单词页就重新聚焦搜索框
+// 回到 App 时不主动弹出键盘：查单词页保持展示，键盘由用户点输入框再弹
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !CARD && !st.awaitScan && st.tab === "physical" && !st.book && !cam.classList.contains("on") && !sheet.classList.contains("on")) focusQuery();
+  if (document.visibilityState === "hidden" && !CARD && st.kb) { document.activeElement?.blur?.(); N.keyboard(false); }
 });
 
 /* ===================== 启动 ===================== */
