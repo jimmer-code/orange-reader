@@ -208,3 +208,6 @@
 - headless Chrome 截图双主题验证：外屏首页/书库/设置底卡/单词卡、内屏侧边栏+浮卡，均确认无破样式。
 - 检查：`node --check`、CSS 花括号平衡、`assembleRelease` 成功、zipalign OK、manifest sha256 与本地 APK 一致。
 - 发布：1.15 / versionCode 16。
+
+### M23 追加：词头图标优化（1.16/17）
+- 用户反馈文/星图标偏小且没对齐：`.icbtn` 30→36px、svg 18→21px、`文` 13→15px 加粗、`.hwt` gap 4→6px。
