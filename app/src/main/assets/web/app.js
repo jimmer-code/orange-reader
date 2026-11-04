@@ -11,7 +11,7 @@ const handlers = {};
 window.onNative = (type, data) => { const h = handlers[type]; if (h) h(data); };
 
 const DEFAULT_LEVEL = "Chinese native speaker reading English novels; passed CET-6 (about 6000 English words); comfortable with everyday and news vocabulary, weak on literary, archaic and nautical words.";
-const settings = Object.assign({ level: DEFAULT_LEVEL, volume: false }, kv.get("settings", {}));
+const settings = Object.assign({ level: DEFAULT_LEVEL, volume: false, uitheme: "system" }, kv.get("settings", {}));
 const RS = kv.get("reader", {});
 
 /* ===================== 状态 ===================== */
@@ -50,7 +50,10 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;",
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const darkUI = () => matchMedia("(prefers-color-scheme: dark)").matches;
+const darkUI = () => settings.uitheme === "dark" || (settings.uitheme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+const applyUITheme = () => { document.documentElement.dataset.theme = settings.uitheme === "system" ? "" : settings.uitheme; };
+applyUITheme();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { applyUITheme(); if (!R) N.bars(true, !darkUI()); });
 const dims = () => [innerWidth, innerHeight];
 const qid = w => w.replace(/[^a-z0-9]/g, "_");
 const hash = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
@@ -1575,6 +1578,7 @@ function openSettings() {
   openSheet(`<div class="sh-head"><h3>设置</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
     <div class="sh-body">
       <div class="opts" style="margin-top:0">
+        <div class="opt"><span>界面主题</span><span class="mini">${[["system", "跟随系统"], ["light", "浅色"], ["dark", "深色"]].map(([v, t]) => `<button data-ut="${v}" aria-pressed="${settings.uitheme === v}">${t}</button>`).join("")}</span></div>
         <div class="opt"><span>Jev 判断生词</span><button class="txt-btn" data-st="testjev">测试连接</button></div>
         <div class="opt"><span>在线更新</span><button class="txt-btn" data-st="update" data-update-state="idle">检查更新</button></div>
         <div class="opt"><span>音量键翻页</span><button class="switch" role="switch" data-st="volume" aria-checked="${!!settings.volume}" aria-label="音量键翻页"></button></div>
@@ -1610,6 +1614,13 @@ sheet.addEventListener("change", e => {
 
 sheet.addEventListener("click", async e => {
   if (e.target.closest("[data-close]")) { closeSheet(); return; }
+  const ut = e.target.closest("[data-ut]");
+  if (ut) {
+    settings.uitheme = ut.dataset.ut; kv.set("settings", settings); applyUITheme();
+    $$("[data-ut]", sheet).forEach(b => b.setAttribute("aria-pressed", b === ut));
+    if (!R) N.bars(true, !darkUI());
+    return;
+  }
   const swap = e.target.closest("[data-swap]");
   if (swap) { const l = !document.documentElement.classList.contains("side-l"); document.documentElement.classList.toggle("side-l", l); kv.set("cardSide", l ? "l" : "r"); return; }
   const bk = e.target.closest("[data-bk]");

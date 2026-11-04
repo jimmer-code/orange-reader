@@ -241,8 +241,9 @@ svg { display: block; }
 .reader[data-theme="bold"]     { --r-bg: #fcfcfd; --r-fg: #1c2024; --r-muted: #8b8d98; --r-chip: #f0f0f3; --r-hl: #ffdfb5; --r-shade: #1c202438; --r-weight: 600; }
 .reader[data-theme="calm"]     { --r-bg: #f2f0e7; --r-fg: #3b352b; --r-muted: #71624b; --r-chip: #eae6db; --r-hl: #ffdfb5; --r-shade: #3b352b38; }
 .reader[data-theme="focus"]    { --r-bg: #111110; --r-fg: #ffe7b3; --r-muted: #6f6d66; --r-chip: #222221; --r-hl: #462100; --r-shade: #00000099; }
+:root[data-theme="dark"] .reader[data-theme="original"], :root[data-theme="dark"] .reader[data-theme="bold"] { --r-bg: #111113; --r-fg: #edeef0; --r-muted: #696e77; --r-chip: #212225; --r-hl: #462100; --r-shade: #00000080; }
 @media (prefers-color-scheme: dark) {
-  .reader[data-theme="original"], .reader[data-theme="bold"] { --r-bg: #111113; --r-fg: #edeef0; --r-muted: #696e77; --r-chip: #212225; --r-hl: #462100; --r-shade: #00000080; }
+  :root:not([data-theme="light"]) .reader:is([data-theme="original"], [data-theme="bold"]) { --r-bg: #111113; --r-fg: #edeef0; --r-muted: #696e77; --r-chip: #212225; --r-hl: #462100; --r-shade: #00000080; }
 }
 .reader[data-font="source"] { --r-font: "Source Serif 4", Georgia, serif; }
 .reader[data-font="sans"] { --r-font: var(--f-ui); }
@@ -379,7 +380,8 @@ svg { display: block; }
 
 /* ===================== App：真实设备上的补充 ===================== */
 :root { --sat: 28px; --sab: 0px; --sal: 0px; --sar: 0px; --f-ui: "MiSans", system-ui, "Noto Sans SC", sans-serif; --danger: #ce2c31; /* red11 */ }
-@media (prefers-color-scheme: dark) { :root { --danger: #ff9592; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --danger: #ff9592; } }
+:root[data-theme="dark"] { --danger: #ff9592; }
 html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 input, textarea { -webkit-user-select: text; user-select: text; }
@@ -422,7 +424,8 @@ textarea.field { height: auto; min-height: 96px; padding: 10px 14px; line-height
    字体、字号、行距、颜色、对齐由阅读设置决定（原书里这些属性在加载时已去掉） */
 .reader { --r-top: 60px; --r-lh: 1.62; --r-align: justify; --r-hyph: auto; --r-link: #cc4e00; }
 .reader:is([data-theme="quiet"], [data-theme="focus"]) { --r-link: #ff801f; }
-@media (prefers-color-scheme: dark) { .reader:is([data-theme="original"], [data-theme="bold"]) { --r-link: #ff801f; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .reader:is([data-theme="original"], [data-theme="bold"]) { --r-link: #ff801f; } }
+:root[data-theme="dark"] .reader:is([data-theme="original"], [data-theme="bold"]) { --r-link: #ff801f; }
 .rd-topbar { top: calc(var(--sat) + 6px); }
 .outer .lk.top { padding-top: calc(var(--sat) + 12px); }
 .outer .lk { padding-bottom: calc(14px + var(--sab)); }
@@ -460,9 +463,11 @@ textarea.field { height: auto; min-height: 96px; padding: 10px 14px; line-height
 .rd-flow img.im-line { mix-blend-mode: multiply; }
 .reader:is([data-theme="quiet"], [data-theme="focus"]) .rd-flow img.im-line { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; }
 .reader:is([data-theme="quiet"], [data-theme="focus"]) .rd-flow img.im-photo { filter: brightness(.85); }
+:root[data-theme="dark"] .reader:is([data-theme="original"], [data-theme="bold"]) .rd-flow img.im-line { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; }
+:root[data-theme="dark"] .reader:is([data-theme="original"], [data-theme="bold"]) .rd-flow img.im-photo { filter: brightness(.85); }
 @media (prefers-color-scheme: dark) {
-  .reader:is([data-theme="original"], [data-theme="bold"]) .rd-flow img.im-line { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; }
-  .reader:is([data-theme="original"], [data-theme="bold"]) .rd-flow img.im-photo { filter: brightness(.85); }
+  :root:not([data-theme="light"]) .reader:is([data-theme="original"], [data-theme="bold"]) .rd-flow img.im-line { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; }
+  :root:not([data-theme="light"]) .reader:is([data-theme="original"], [data-theme="bold"]) .rd-flow img.im-photo { filter: brightness(.85); }
 }
 .rd-back { position: absolute; z-index: 6; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 8px 16px; border-radius: 18px; background: var(--r-chip); color: var(--r-fg); font-family: var(--f-ui); font-size: 14px; box-shadow: 0 1px 3px #0000001f; }
 .lk .note { font-family: var(--r-font); font-size: 17px; line-height: 1.55; color: var(--text); padding: 2px 0 4px; overflow-wrap: anywhere; }

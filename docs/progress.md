@@ -183,6 +183,14 @@
 - 检查：`node --check app/src/main/assets/web/app.js` → OK；`./gradlew assembleRelease` → BUILD SUCCESSFUL。
 - 发布：2026-11-04 通过 `tools/publish_update.sh` 发布 1.11 / versionCode 12。
 
+## M22 界面主题可选
+- 设置页新增「界面主题」分段控件：跟随系统 / 浅色 / 深色，存 `settings.uitheme`；`.mini` 样式复用阅读器分段控件。
+- `darkUI()` 改为读 `settings.uitheme`（system 时回落 matchMedia）；`applyUITheme()` 设 `:root[data-theme]`，启动时调用，系统深浅切换时有 listener（不在阅读时同步 `N.bars`）。
+- CSS：剩余 4 处 `prefers-color-scheme` 全部改为「`:root[data-theme=dark]` 或 媒体查询 + `:not([data-theme=light])`」双条件——读者 original/bold 深色变体、`--danger`、`--r-link`、线稿反相/照片压暗。手动选浅色时这些不再被系统深色触发。
+- 阅读器主题（original/quiet/paper 等）仍独立于界面主题，阅读器里「主题与设置」不变。
+- 检查：`node --check`、CSS 花括号平衡、gradlew assembleRelease 成功。
+- 发布：1.14 / versionCode 15。
+
 ## M21 查词卡重构：图标化操作
 - 第一版（1.12/13）只是把按钮行压矮，用户反馈"样式乱了"，推翻重来。
 - 新方案（用户定稿）：底部 `.acts` 按钮行整行删除，操作全部移到词头 `.hwt`——`文`（翻译整句，有句子且 OpenCode 可用时显示）+ `★`（收藏/取消，词典里没有的词不出星），问 AI 入口移除（含 `[data-ask]` 处理器和 `data-ai-out` 容器）；`.pane`/`.lk`/`.lk-card` 三处一致生效。
