@@ -172,5 +172,6 @@
 - Jev 请求 URL 改为 OpenRouter，模型 `jev-latest`（实测返回 `typesafe/jev-1.14-20261014`，noul+choice 请求 $0.000019，与 SPEC 的 0.00002 一致）；翻译仍走 OpenCode Go，两个 Key 分开注入。
 - `local.properties` 新增 `openrouter.key`（家庭共享站 `jev-api-key` 条目），`BuildConfig.OPENROUTER_KEY` 供 `hasJev()`/`jev()` 使用；`OPENCODE_KEY` 只用于翻译。
 - `Net.open()` 的 `x-opencode-session` 头对 OpenRouter 无害，保留共用发送逻辑。
-- 检查：`node --check app/src/main/assets/web/app.js && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease`。
+- 检查：`node --check app/src/main/assets/web/app.js && ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL；`apksigner verify` 和 `zipalign -c -P 16 4` 通过。
 - 偏差：Jev 请求体、响应解析、离线兜底均不变；`jev-1.13-free` 免费额度不再使用，Jev 改按 OpenRouter 计费（$0.000019/次）。
+- 发布：2026-11-04 通过 `tools/publish_update.sh` 发布 1.10 / versionCode 11，`latest.json` 与本地 APK（24,903,017 bytes，SHA-256 `25f76fd0…2bfa`）已核对一致。
