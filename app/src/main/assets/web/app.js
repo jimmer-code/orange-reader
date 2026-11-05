@@ -946,6 +946,9 @@ function runText(p, side) {
 }
 function setPage(p) {
   R.page = R.spread ? p - (p % 2) : p;
+  // 翻页只改 flow 的 transform，按词缓存的 client rects 会留在上一页的位置；
+  // 不清掉的话下一次 wordAt() 会按旧坐标命中失败（长按有震动但查不出词）。
+  R.wordNodes = null; R.wordNodeIndex = null; R.wordRects = null;
   R.flow.style.transform = `translateX(${-R.page * R.step}px)`;
   R.marks = new Map(Object.entries(fragPagesOf(R.flow, R.ch)));
   const L = runText(R.page, "L"), Rr = runText(R.page + 1, "R");
@@ -1162,21 +1165,34 @@ function bindReader() {
       dbl: near && !!w, w, span: null, anchor: null, sel: null, last: null, edge: 0, edgeT: null, active: true };
     try { r.setPointerCapture(e.pointerId); } catch (ignored) { }
     if (down.dbl) { lastTap = null; down.active = false; lookupInBook(wrapWord(w)); down = null; return; }
-    if (w) {
+    if (w) armPress(down);
+    else if (st.busy) {
+      // 翻页/开书动画没结束时手底下压着的是克隆页，测不出词；等动画结束再补测一次，
+      // 否则这段时间按下去的长按会被整段丢掉，只剩系统自己的长按震动。
       const d = down;
-      d.pressT = setTimeout(() => {
-        if (down !== d) return;
-        d.span = wrapWord(d.w); d.span.classList.add("press"); d.sentence = sentenceOf(d.span);
-      }, 130);
-      d.lockT = setTimeout(() => {
+      const retry = () => {
         if (down !== d || !d.active || d.cancelled) return;
-        d.locked = true; d.state = "locked";
-        d.span = d.span || wrapWord(d.w); d.sentence = d.sentence || sentenceOf(d.span);
-        d.span.classList.remove("press"); d.span.classList.add("locked");
-        N.haptic?.(); N.warmNet();
-      }, 360);
+        if (st.busy) { setTimeout(retry, 40); return; }
+        const w2 = wordAt(d.x, d.y); if (!w2) return;
+        d.w = w2; armPress(d);
+      };
+      setTimeout(retry, 40);
     }
   });
+  const armPress = d => {
+    clearTimeout(d.pressT); clearTimeout(d.lockT);
+    d.pressT = setTimeout(() => {
+      if (down !== d) return;
+      d.span = wrapWord(d.w); d.span.classList.add("press"); d.sentence = sentenceOf(d.span);
+    }, 130);
+    d.lockT = setTimeout(() => {
+      if (down !== d || !d.active || d.cancelled) return;
+      d.locked = true; d.state = "locked";
+      d.span = d.span || wrapWord(d.w); d.sentence = d.sentence || sentenceOf(d.span);
+      d.span.classList.remove("press"); d.span.classList.add("locked");
+      N.haptic?.(); N.warmNet();
+    }, 360);
+  };
   const cancelBeforeLock = d => {
     clearTimeout(d.pressT); clearTimeout(d.lockT);
     d.cancelled = true;
