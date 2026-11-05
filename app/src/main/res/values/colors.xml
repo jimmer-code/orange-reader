@@ -1,8 +1,9 @@
 <resources>
-    <color name="bg">#FCFCFD</color>
-    <color name="bg2">#F9F9FB</color>
-    <color name="line">#D9D9E0</color>
-    <color name="faint">#8B8D98</color>
-    <color name="accent">#F76B15</color>
-    <color name="accent_text">#CC4E00</color>
+    <!-- Pixel Forge（像素工坊）纸面色板；与 assets/web/app.css 的 :root 令牌一致 -->
+    <color name="bg">#F7F1DE</color>
+    <color name="bg2">#F3ECD8</color>
+    <color name="line">#D8CDB4</color>
+    <color name="faint">#968B76</color>
+    <color name="accent">#D95F2B</color>
+    <color name="accent_text">#A9471D</color>
 </resources>

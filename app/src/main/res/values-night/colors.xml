@@ -1,8 +1,9 @@
 <resources>
-    <color name="bg">#111113</color>
-    <color name="bg2">#18191B</color>
-    <color name="line">#363A3F</color>
-    <color name="faint">#696E77</color>
-    <color name="accent">#F76B15</color>
-    <color name="accent_text">#FF801F</color>
+    <!-- Pixel Forge 墨面色板（与 app.css 深色令牌一致） -->
+    <color name="bg">#2F271C</color>
+    <color name="bg2">#383024</color>
+    <color name="line">#413A2D</color>
+    <color name="faint">#817A6B</color>
+    <color name="accent">#D95F2B</color>
+    <color name="accent_text">#F0B696</color>
 </resources>
