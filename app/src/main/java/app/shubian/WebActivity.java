@@ -15,6 +15,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
+import android.util.Base64;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.HapticFeedbackConstants;
@@ -46,6 +47,7 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.io.FileOutputStream;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
@@ -368,6 +370,30 @@ public abstract class WebActivity extends Activity {
         @JavascriptInterface public void bars(boolean visible, boolean darkIcons) { main.post(() -> applyBars(visible, darkIcons)); }
         @JavascriptInterface public void close() { main.post(WebActivity.this::finish); }
         @JavascriptInterface public void perf(String label, long ms) { Log.i("ShubianPerf", label + " " + ms + "ms"); }
+        /** 分享书摘：JS 画好 PNG 传进来，写进缓存目录，用系统分享面板发出去。 */
+        @JavascriptInterface public void shareCard(String dataUrl) {
+            main.post(() -> {
+                try {
+                    int comma = dataUrl == null ? -1 : dataUrl.indexOf(',');
+                    String b64 = comma >= 0 ? dataUrl.substring(comma + 1) : dataUrl;
+                    byte[] png = Base64.decode(b64, Base64.DEFAULT);
+                    File dir = new File(getCacheDir(), "share");
+                    dir.mkdirs();
+                    long now = System.currentTimeMillis();
+                    File[] olds = dir.listFiles();
+                    if (olds != null) for (File f : olds) if (now - f.lastModified() > 3600_000L) f.delete();
+                    File out = new File(dir, "excerpt-" + now + ".png");
+                    try (FileOutputStream fos = new FileOutputStream(out)) { fos.write(png); }
+                    Uri uri = Uri.parse("content://app.shubian.images/share/" + out.getName());
+                    Intent send = new Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM, uri);
+                    send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(Intent.createChooser(send, "分享书摘"));
+                } catch (Exception e) {
+                    Log.w("Shubian", "shareCard", e);
+                    emit("toast", JSONObject.quote("分享失败：" + (e.getMessage() == null ? "未知错误" : e.getMessage())));
+                }
+            });
+        }
         @JavascriptInterface public void ready() {
             main.post(() -> {
                 Log.i("ShubianPerf", "ready " + (System.currentTimeMillis() - createdAt) + "ms");

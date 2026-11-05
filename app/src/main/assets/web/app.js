@@ -518,6 +518,8 @@ scr.addEventListener("click", e => {
   if (targetTab && activeTarget) { renderReadingTarget(activeTarget, targetTab.dataset.targetTab); return; }
   const targetSave = e.target.closest("[data-target-save]");
   if (targetSave && activeTarget) { toggleTargetSave(activeTarget, targetSave.dataset.targetSave, targetSave); return; }
+  const targetShare = e.target.closest("[data-target-share]");
+  if (targetShare && activeTarget) { shareExcerpt(targetShare); return; }
   if (e.target.closest("[data-trs]") && R) { const hl = $(".w.hl", R.flow); translateInBook(st.lkSentence, rectIn(hl || R.lk), null, hl && blockText(hl)); return; }
   const v = e.target.closest("[data-save]");
   if (v) {
@@ -1415,11 +1417,145 @@ function renderReadingTarget(target, type, sr) {
     body = `<div class="target-body"><div class="target-kind">${label}</div><div class="trx src">${esc(target.text)}</div>
       <div class="trx target-out" id="rt-out">${offline || (N.hasTr() ? "…" : "未配置整句翻译")}</div>
       <div class="target-context">${type === "phrase" ? "参考所在句理解，但只翻译选中的短语。" : "参考书名和所在段落理解指代。"}</div>
-      <div class="acts"><button class="pill ${on ? "done" : "alt"}" data-target-save="${type}">${action}</button></div></div>`;
+      <div class="acts"><button class="pill ${on ? "done" : "alt"}" data-target-save="${type}">${action}</button><button class="pill alt share" data-target-share="1">分享书摘</button></div></div>`;
     resolved.offline = !!offline;
   }
   showCard(`<div class="grab"></div><div class="reading-target">${targetTabs(type)}${body}</div>`, anchor);
   if (type !== "word" && N.hasTr() && !resolved.offline) translateText(target.text, $("#rt-out", R.lk), target.sentence);
+}
+
+/* ---------- 分享书摘：摘录 + 中文译文画成像素风竖版 PNG，交给系统分享面板 ---------- */
+const EXCERPT_W = 1080, EXCERPT_H = 1440;
+const EXCERPT = { paper: "#f7f1de", ink: "#241d12", muted: "#4a4237", faint: "#8a7f6c", accent: "#d95f2b", line: "rgba(36,29,18,.30)" };
+const CJK_RE = /[\u3000-\u9fff\uff00-\uffef]/;
+function excerptLines(ctx, text, maxW) {
+  const out = [];
+  for (const para of String(text).split(/\n+/)) {
+    const tokens = para.match(/[\u3000-\u9fff\uff00-\uffef]|[^\s\u3000-\u9fff\uff00-\uffef]+/g) || [];
+    let line = "";
+    for (const tk of tokens) {
+      if (!line) { line = tk; continue; }
+      const sep = CJK_RE.test(line.slice(-1)) || CJK_RE.test(tk[0]) ? "" : " ";
+      const test = line + sep + tk;
+      if (ctx.measureText(test).width <= maxW) line = test; else { out.push(line); line = tk; }
+    }
+    if (line) out.push(line);
+  }
+  return out;
+}
+/** 在给定区域里挑一个放得下的字号；最小字号还放不下就截断加省略号。 */
+function excerptFit(ctx, text, o) {
+  let best = null;
+  for (let size = o.sizeMax; size >= o.sizeMin; size -= 2) {
+    ctx.font = `${o.weight} ${size}px ${o.family}`;
+    const lines = excerptLines(ctx, text, o.maxW);
+    best = { size, lines };   // 每次覆盖，循环结束留下的是最小字号（截断时保留最多文字）
+    if (lines.length * size * o.lineH <= o.maxH) return { size, lines, lineH: o.lineH };
+  }
+  const maxLines = Math.max(1, Math.floor(o.maxH / (best.size * o.lineH)));
+  const lines = best.lines.slice(0, maxLines);
+  lines[maxLines - 1] = lines[maxLines - 1].replace(/[\s,，。.;；:：、]*$/, "") + "…";
+  return { size: best.size, lines, lineH: o.lineH };
+}
+async function excerptCanvas({ quote, trans, title, author }) {
+  const c = document.createElement("canvas");
+  c.width = EXCERPT_W; c.height = EXCERPT_H;
+  const ctx = c.getContext("2d");
+  const K = EXCERPT, PAD = 104, innerW = EXCERPT_W - PAD * 2;
+  const QUOTE_FONT = '"Literata", Georgia, serif', TEXT_FONT = '"Noto Sans SC", "MiSans", sans-serif', PIX_FONT = '"Fusion Pixel", "Noto Sans SC", sans-serif';
+  try { await Promise.all([document.fonts.load('600 56px Literata'), document.fonts.load('400 34px "Fusion Pixel"'), document.fonts.load('400 40px "Noto Sans SC"')]); } catch (e) { }
+  // 纸面、CRT 扫描线、四角硬框
+  ctx.fillStyle = K.paper; ctx.fillRect(0, 0, EXCERPT_W, EXCERPT_H);
+  ctx.fillStyle = "rgba(36,29,18,.035)";
+  for (let y = 0; y < EXCERPT_H; y += 3) ctx.fillRect(0, y, EXCERPT_W, 1);
+  ctx.strokeStyle = "rgba(36,29,18,.55)"; ctx.lineWidth = 3; ctx.lineCap = "square";
+  const arm = 72, inset = 44;
+  [[inset, inset, 1, 1], [EXCERPT_W - inset, inset, -1, 1], [inset, EXCERPT_H - inset, 1, -1], [EXCERPT_W - inset, EXCERPT_H - inset, -1, -1]]
+    .forEach(([x, y, sx, sy]) => { ctx.beginPath(); ctx.moveTo(x, y + arm * sy); ctx.lineTo(x, y); ctx.lineTo(x + arm * sx, y); ctx.stroke(); });
+  // 顶部标签与分隔线
+  ctx.textBaseline = "top";
+  ctx.font = `400 34px ${PIX_FONT}`; ctx.fillStyle = K.accent; ctx.fillText("书 摘", PAD, PAD - 12);
+  ctx.textAlign = "right"; ctx.font = `400 28px ${PIX_FONT}`; ctx.fillStyle = K.faint; ctx.fillText("EXCERPT", EXCERPT_W - PAD, PAD - 8);
+  ctx.textAlign = "left";
+  ctx.fillStyle = K.line; ctx.fillRect(PAD, PAD + 44, innerW, 2);
+  // 摘录与译文：先量出总高，整块在中间区域垂直居中
+  const quoteTop = PAD + 100, bottomRuleY = EXCERPT_H - PAD - 104, availH = bottomRuleY - quoteTop - 24;
+  const q = excerptFit(ctx, quote, { maxW: innerW, maxH: Math.round(availH * (trans ? .62 : 1)), sizeMax: 68, sizeMin: 34, lineH: 1.5, family: QUOTE_FONT, weight: 600 });
+  const qBlockH = q.lines.length * q.size * q.lineH;
+  let t = null, tBlockH = 0;
+  if (trans) {
+    t = excerptFit(ctx, trans, { maxW: innerW - 28, maxH: availH - qBlockH - 62, sizeMax: 42, sizeMin: 29, lineH: 1.7, family: TEXT_FONT, weight: 400 });
+    tBlockH = t.lines.length * t.size * t.lineH;
+  }
+  const totalH = qBlockH + (t ? 62 + tBlockH : 0);
+  let y = quoteTop + Math.max(0, (availH - totalH) / 2);
+  ctx.font = `600 ${q.size}px ${QUOTE_FONT}`; ctx.fillStyle = K.ink;
+  for (const ln of q.lines) { ctx.fillText(ln, PAD, y); y += q.size * q.lineH; }
+  if (t) {
+    const tTop = y + 62;
+    ctx.fillStyle = K.accent; ctx.fillRect(PAD, tTop + 4, 6, 28);
+    ctx.font = `400 ${t.size}px ${TEXT_FONT}`; ctx.fillStyle = K.muted;
+    let ty = tTop;
+    for (const ln of t.lines) { ctx.fillText(ln, PAD + 26, ty); ty += t.size * t.lineH; }
+  }
+  // 出处
+  ctx.fillStyle = "rgba(36,29,18,.22)"; ctx.fillRect(PAD, bottomRuleY, innerW, 2);
+  const meta = [title, author].filter(Boolean).join("  ·  ");
+  ctx.fillStyle = K.accent; ctx.fillRect(PAD, bottomRuleY + 32, 14, 14);
+  ctx.font = `400 34px ${PIX_FONT}`; ctx.fillStyle = K.muted;
+  if (meta) ctx.fillText(meta, PAD + 30, bottomRuleY + 28, innerW - 30);
+  return c.toDataURL("image/png");
+}
+async function excerptWaitTranslation(out) {
+  let last = "", stable = 0;
+  for (let i = 0; i < 120; i++) {
+    const txt = out.textContent.trim();
+    if (txt && txt !== "…") {
+      if (txt === last) { if (++stable >= 4) return txt; } else { last = txt; stable = 0; }
+    } else { last = ""; stable = 0; }
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return out.textContent.trim();
+}
+function translateAwait(text, ctxText) {
+  const title = st.book ? `书名：《${st.book.title}》\n` : "";
+  const c = ctxText && ctxText.length > text.length + 20 && ctxText.length < 1500 ? `<context>${ctxText}</context>\n` : "";
+  const payload = `${title}${c}<text>${text}</text>`;
+  if (trCache.has(payload)) return Promise.resolve(trCache.get(payload));
+  if (!N.hasTr()) return Promise.resolve("");
+  return new Promise(resolve => {
+    let done = false; const id = ++trSeq; let out = "";
+    trWait[id] = d => {
+      if (d.delta) out += d.delta;
+      if (d.done && !done) { done = true; trCache.set(payload, out); resolve(out); }
+      if (d.error && !done) { done = true; resolve(out || ""); }
+    };
+    N.translate(id, payload, false);
+    setTimeout(() => { if (!done) { done = true; resolve(out || ""); } }, 20000);
+  });
+}
+const BAD_TRANS = /^(网络|请求|未配置|Jev|HTTP|翻译失败|…)/;
+async function shareExcerpt(btn) {
+  const t = activeTarget;
+  if (!t || !R) return;
+  const quote = (t.text || "").replace(/\s+/g, " ").trim();
+  if (!quote) return;
+  const label = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "生成中…"; }
+  try {
+    let trans = "";
+    const out = $("#rt-out", R.lk);
+    if (out) { const s2 = await excerptWaitTranslation(out); if (s2 && !BAD_TRANS.test(s2)) trans = s2; }
+    if (!trans) trans = (await translateAwait(quote, t.sentence)).trim();
+    if (trans && BAD_TRANS.test(trans)) trans = "";
+    const dataUrl = await excerptCanvas({ quote, trans, title: st.book?.title || "", author: st.book?.author || "" });
+    N.shareCard(dataUrl);
+    if (!trans) toast("没拿到译文，先分享原文");
+  } catch (e) {
+    toast("生成书摘失败");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
 }
 
 /* ---------- 阅读中查词 ---------- */

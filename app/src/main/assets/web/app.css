@@ -217,6 +217,9 @@ svg { display: block; }
 .pill.primary { background: var(--accent); color: var(--on-accent); flex: 1; }
 .pill.done { background: var(--accent-soft); color: var(--accent-text); flex: 1; }
 .pill.alt { background: var(--fill); color: var(--text); flex: none; }
+/* 分享书摘：次要动作，用赭红描边和字色点出来 */
+.pill.share { border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent-text); }
+.pill.share:disabled { opacity: .6; }
 .pane .wd { padding: 28px 32px; max-width: 520px; }
 .pane-empty { height: 100%; display: grid; place-items: center; color: var(--faint); text-align: center; padding: 32px; }
 
