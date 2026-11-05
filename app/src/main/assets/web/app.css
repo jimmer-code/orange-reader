@@ -332,7 +332,6 @@ svg { display: block; }
 .target-scroll { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; padding-right: 2px; }
 .target-scroll .src { margin: 0; }
 .target-out { min-height: 44px; }
-.target-context { color: var(--muted); font-size: 12px; }
 .reading-target .acts { flex: none; padding-top: 8px; background: var(--bg); }
 
 /* 主题与设置 */
@@ -533,7 +532,7 @@ textarea.field { height: auto; min-height: 96px; padding: 10px 14px; line-height
 .scr .lg-head h2, .scr .sec-t, .scr .st-sec, .scr .cont .t, .scr .badge, .scr .sh-head h3,
 .scr .act, .scr .pill, .scr .toast, .scr .mini button, .scr .target-tabs button, .scr .target-kind,
 .scr .inner .nav .brand, .scr .inner .nav button, .scr .chips button, .scr .icbtn, .scr .back,
-.scr .ctx .k, .scr .senses .tag, .scr .target-context, .scr .ls, .scr .note { font-weight: 400; }
+.scr .ctx .k, .scr .senses .tag, .scr .ls, .scr .note { font-weight: 400; }
 /* 卡片与浮层用硬边线代替柔和投影 */
 .scr .sheet { border-top: 1px solid var(--line); }
 .scr .inner .sheet { border: 1px solid var(--line); }

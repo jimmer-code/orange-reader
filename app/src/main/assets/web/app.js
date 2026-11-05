@@ -1415,14 +1415,12 @@ function renderReadingTarget(target, type, sr) {
   const offline = phraseInfo && offlinePhraseHTML(phraseInfo);
   const map = isPhrase ? savedPhrases : savedQuotes, on = map.has(targetKey(target, type));
   const action = on ? `已保存${label}` : `保存${label}`;
-  const tip = isPhrase ? "按所在句子理解，只翻选中的部分。" : "按书名和所在段落理解指代。";
   activeTarget.offline = !!offline;
   showCard(`<div class="grab"></div><div class="reading-target">
       <div class="target-head"><span class="target-kind">${label}</span><button class="x" data-close="1" aria-label="关闭">${I.x}</button></div>
       <div class="target-scroll">
         <div class="trx src">${esc(text)}</div>
         <div class="trx target-out" id="rt-out">${offline || (N.hasTr() ? "…" : "未配置整句翻译")}</div>
-        <div class="target-context">${tip}</div>
       </div>
       <div class="acts"><button class="pill ${on ? "done" : "alt"}" data-target-save="${type}">${action}</button><button class="pill alt share" data-target-share="1">分享书摘</button></div>
     </div>`, anchor);
