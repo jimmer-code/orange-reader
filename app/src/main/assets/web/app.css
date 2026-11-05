@@ -317,21 +317,23 @@ svg { display: block; }
 .inner .lk.on { opacity: 1; transform: none; pointer-events: auto; }
 .outer .lk .grab { margin-bottom: 8px; }
 .outer .lk { display: flex; flex-direction: column; overflow: hidden !important; touch-action: pan-y; }
-.outer .lk > .wd, .outer .lk > .reading-target { min-height: 0; flex: 1 1 auto; }
-.outer .lk > .wd { display: flex; flex-direction: column; }
-.outer .lk > .wd .senses { min-height: 0; flex: 1 1 auto; overflow-y: auto; }
-.outer .lk > .wd .acts, .outer .lk > .reading-target .acts { flex: none; background: var(--bg); padding-top: 6px; }
+.inner .lk { display: flex; flex-direction: column; overflow: hidden; max-height: calc(100% - 140px); }
+.outer .lk > .wd, .outer .lk > .reading-target,
+.inner .lk > .wd, .inner .lk > .reading-target { min-height: 0; flex: 1 1 auto; }
+.outer .lk > .wd, .inner .lk > .wd { display: flex; flex-direction: column; }
+.outer .lk > .wd .senses, .inner .lk > .wd .senses { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; }
+.outer .lk > .wd .acts { flex: none; background: var(--bg); padding-top: 6px; }
 .inner .lk .grab { display: none; }
-.reading-target { font-family: var(--f-ui); }
-.target-tabs { display: flex; gap: 2px; padding: 2px; margin: 0 0 14px; border-radius: 10px; background: var(--fill); }
-.target-tabs button { flex: 1; height: 34px; border-radius: 8px; color: var(--muted); font-size: 14px; }
-.target-tabs button[aria-selected="true"] { background: var(--bg); color: var(--text); font-weight: 600; box-shadow: var(--shadow-1); }
-.target-body { display: flex; flex-direction: column; gap: 10px; }
-.target-kind { color: var(--accent-text); font-size: 12px; font-weight: 600; }
-.target-body .src { margin: 0; }
+.reading-target { display: flex; flex-direction: column; min-height: 0; font-family: var(--f-ui); }
+.target-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex: none; }
+.target-head .x { width: 30px; height: 30px; }
+.target-kind { color: var(--accent-text); font-size: 12px; letter-spacing: .08em; }
+/* 正文（原文 + 译文 + 提示）自己滚动，底部按钮固定不动 */
+.target-scroll { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; padding-right: 2px; }
+.target-scroll .src { margin: 0; }
 .target-out { min-height: 44px; }
 .target-context { color: var(--muted); font-size: 12px; }
-.reading-target .acts { margin-top: 2px; }
+.reading-target .acts { flex: none; padding-top: 8px; background: var(--bg); }
 
 /* 主题与设置 */
 .size-row .seg2 { display: flex; background: var(--fill); border-radius: 12px; overflow: hidden; }
