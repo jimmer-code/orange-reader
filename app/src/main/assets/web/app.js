@@ -11,7 +11,7 @@ const handlers = {};
 window.onNative = (type, data) => { const h = handlers[type]; if (h) h(data); };
 
 const DEFAULT_LEVEL = "Chinese native speaker reading English novels; passed CET-6 (about 6000 English words); comfortable with everyday and news vocabulary, weak on literary, archaic and nautical words.";
-const settings = Object.assign({ level: DEFAULT_LEVEL, volume: false, uitheme: "system" }, kv.get("settings", {}));
+const settings = Object.assign({ level: DEFAULT_LEVEL, volume: false, uitheme: "system", excerptRatio: "34" }, kv.get("settings", {}));
 const RS = kv.get("reader", {});
 
 /* ===================== 状态 ===================== */
@@ -520,6 +520,16 @@ scr.addEventListener("click", e => {
   if (targetSave && activeTarget) { toggleTargetSave(activeTarget, targetSave.dataset.targetSave, targetSave); return; }
   const targetShare = e.target.closest("[data-target-share]");
   if (targetShare && activeTarget) { shareExcerpt(targetShare); return; }
+  const exRatio = e.target.closest("[data-ex-ratio]");
+  if (exRatio && excerptState) {
+    excerptState.ratio = exRatio.dataset.exRatio;
+    settings.excerptRatio = excerptState.ratio; kv.set("settings", settings);
+    $$("[data-ex-ratio]", sheet).forEach(b => b.setAttribute("aria-pressed", b.dataset.exRatio === excerptState.ratio));
+    renderExcerptPreview();
+    return;
+  }
+  if (e.target.closest("[data-ex-cancel]")) { closeSheet(); return; }
+  if (e.target.closest("#ex-share") && excerptState) { if (excerptState.dataUrl) N.shareCard(excerptState.dataUrl); return; }
   if (e.target.closest("[data-trs]") && R) { const hl = $(".w.hl", R.flow); translateInBook(st.lkSentence, rectIn(hl || R.lk), null, hl && blockText(hl)); return; }
   const v = e.target.closest("[data-save]");
   if (v) {
@@ -1425,7 +1435,8 @@ function renderReadingTarget(target, type, sr) {
 }
 
 /* ---------- 分享书摘：摘录 + 中文译文画成像素风竖版 PNG，交给系统分享面板 ---------- */
-const EXCERPT_W = 1080, EXCERPT_H = 1440;
+const EXCERPT_W = 1080;
+const EXCERPT_H = { "34": 1440, "916": 1920, "11": 1080 };   // 聊天 / 朋友圈竖屏 / 方形
 const EXCERPT = { paper: "#f7f1de", ink: "#241d12", muted: "#4a4237", faint: "#8a7f6c", accent: "#d95f2b", line: "rgba(36,29,18,.30)" };
 const CJK_RE = /[\u3000-\u9fff\uff00-\uffef]/;
 function excerptLines(ctx, text, maxW) {
@@ -1457,20 +1468,21 @@ function excerptFit(ctx, text, o) {
   lines[maxLines - 1] = lines[maxLines - 1].replace(/[\s,，。.;；:：、]*$/, "") + "…";
   return { size: best.size, lines, lineH: o.lineH };
 }
-async function excerptCanvas({ quote, trans, title, author }) {
+async function excerptCanvas({ quote, trans, title, author, ratio }) {
+  const H = EXCERPT_H[ratio] || EXCERPT_H["34"];
   const c = document.createElement("canvas");
-  c.width = EXCERPT_W; c.height = EXCERPT_H;
+  c.width = EXCERPT_W; c.height = H;
   const ctx = c.getContext("2d");
   const K = EXCERPT, PAD = 104, innerW = EXCERPT_W - PAD * 2;
   const QUOTE_FONT = '"Literata", Georgia, serif', TEXT_FONT = '"Noto Sans SC", "MiSans", sans-serif', PIX_FONT = '"Fusion Pixel", "Noto Sans SC", sans-serif';
   try { await Promise.all([document.fonts.load('600 56px Literata'), document.fonts.load('400 34px "Fusion Pixel"'), document.fonts.load('400 40px "Noto Sans SC"')]); } catch (e) { }
   // 纸面、CRT 扫描线、四角硬框
-  ctx.fillStyle = K.paper; ctx.fillRect(0, 0, EXCERPT_W, EXCERPT_H);
+  ctx.fillStyle = K.paper; ctx.fillRect(0, 0, EXCERPT_W, H);
   ctx.fillStyle = "rgba(36,29,18,.035)";
-  for (let y = 0; y < EXCERPT_H; y += 3) ctx.fillRect(0, y, EXCERPT_W, 1);
+  for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, EXCERPT_W, 1);
   ctx.strokeStyle = "rgba(36,29,18,.55)"; ctx.lineWidth = 3; ctx.lineCap = "square";
   const arm = 72, inset = 44;
-  [[inset, inset, 1, 1], [EXCERPT_W - inset, inset, -1, 1], [inset, EXCERPT_H - inset, 1, -1], [EXCERPT_W - inset, EXCERPT_H - inset, -1, -1]]
+  [[inset, inset, 1, 1], [EXCERPT_W - inset, inset, -1, 1], [inset, H - inset, 1, -1], [EXCERPT_W - inset, H - inset, -1, -1]]
     .forEach(([x, y, sx, sy]) => { ctx.beginPath(); ctx.moveTo(x, y + arm * sy); ctx.lineTo(x, y); ctx.lineTo(x + arm * sx, y); ctx.stroke(); });
   // 顶部标签与分隔线
   ctx.textBaseline = "top";
@@ -1479,8 +1491,9 @@ async function excerptCanvas({ quote, trans, title, author }) {
   ctx.textAlign = "left";
   ctx.fillStyle = K.line; ctx.fillRect(PAD, PAD + 44, innerW, 2);
   // 摘录与译文：先量出总高，整块在中间区域垂直居中
-  const quoteTop = PAD + 100, bottomRuleY = EXCERPT_H - PAD - 104, availH = bottomRuleY - quoteTop - 24;
-  const q = excerptFit(ctx, quote, { maxW: innerW, maxH: Math.round(availH * (trans ? .62 : 1)), sizeMax: 68, sizeMin: 34, lineH: 1.5, family: QUOTE_FONT, weight: 600 });
+  const quoteTop = PAD + 100, bottomRuleY = H - PAD - 104, availH = bottomRuleY - quoteTop - 24;
+  const sizeMax = H >= 1800 ? 84 : H <= 1200 ? 56 : 68;
+  const q = excerptFit(ctx, quote, { maxW: innerW, maxH: Math.round(availH * (trans ? .62 : 1)), sizeMax, sizeMin: 34, lineH: 1.5, family: QUOTE_FONT, weight: 600 });
   const qBlockH = q.lines.length * q.size * q.lineH;
   let t = null, tBlockH = 0;
   if (trans) {
@@ -1534,6 +1547,26 @@ function translateAwait(text, ctxText) {
     setTimeout(() => { if (!done) { done = true; resolve(out || ""); } }, 20000);
   });
 }
+let excerptState = null;
+const EXCERPT_RATIOS = [["34", "3:4 聊天"], ["916", "9:16 竖屏"], ["11", "1:1 方形"]];
+async function openExcerptSheet(state) {
+  if (!settings.excerptRatio || !EXCERPT_H[settings.excerptRatio]) settings.excerptRatio = "34";
+  excerptState = Object.assign({ ratio: settings.excerptRatio, dataUrl: "" }, state);
+  const chips = EXCERPT_RATIOS.map(([k, t]) => `<button data-ex-ratio="${k}" aria-pressed="${excerptState.ratio === k}">${t}</button>`).join("");
+  openSheet(`<div class="sh-body"><div class="ex-sheet">
+    <div class="ex-preview"><img id="ex-img" alt="书摘卡预览"></div>
+    <div class="ex-ratios">${chips}</div>
+    <div class="acts"><button class="pill alt" data-ex-cancel="1">取消</button><button class="pill primary" id="ex-share">分享</button></div>
+  </div></div>`, "ex-wrap");
+  await renderExcerptPreview();
+}
+async function renderExcerptPreview() {
+  if (!excerptState) return;
+  const url = await excerptCanvas(excerptState);
+  excerptState.dataUrl = url;
+  const img = $("#ex-img");
+  if (img) img.src = url;
+}
 const BAD_TRANS = /^(网络|请求|未配置|Jev|HTTP|翻译失败|…)/;
 async function shareExcerpt(btn) {
   const t = activeTarget;
@@ -1548,8 +1581,7 @@ async function shareExcerpt(btn) {
     if (out) { const s2 = await excerptWaitTranslation(out); if (s2 && !BAD_TRANS.test(s2)) trans = s2; }
     if (!trans) trans = (await translateAwait(quote, t.sentence)).trim();
     if (trans && BAD_TRANS.test(trans)) trans = "";
-    const dataUrl = await excerptCanvas({ quote, trans, title: st.book?.title || "", author: st.book?.author || "" });
-    N.shareCard(dataUrl);
+    await openExcerptSheet({ quote, trans, title: st.book?.title || "", author: st.book?.author || "" });
     if (!trans) toast("没拿到译文，先分享原文");
   } catch (e) {
     toast("生成书摘失败");

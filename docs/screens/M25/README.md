@@ -6,3 +6,6 @@
 - `excerpt-card-short.png`：短语级摘录，字会自动放大（68px）。
 - `excerpt-card-long.png`：一整段长摘录，缩到最小字号后截断，末尾带省略号。
 - `excerpt-card-phrase.png`：真实拖选「extreme downtown」这条的成品，用来核对按钮到分享的整条链路。
+
+- `excerpt-card-916.png`：9:16 竖版（1080×1920），摘录会放大到 84px，适合朋友圈、小红书这类全屏场合。
+- `excerpt-card-11.png`：1:1 方形（1080×1080），55 字以内的短摘录最合适。

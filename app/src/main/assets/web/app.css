@@ -490,6 +490,15 @@ textarea.field { height: auto; min-height: 96px; padding: 10px 14px; line-height
 .lk .note img { max-width: 100%; }
 .lk .note a { color: inherit; text-decoration: none; }
 
+/* 分享书摘的预览面板 */
+.ex-preview { display: grid; place-items: center; background: var(--fill); border: 1px solid var(--line); padding: 10px; }
+.ex-preview img { display: block; max-width: 100%; max-height: 50vh; border: 1px solid var(--line); background: var(--bg); }
+.ex-sheet { display: flex; flex-direction: column; gap: 12px; padding: 6px 0 4px; }
+.ex-ratios { display: flex; gap: 8px; }
+.ex-ratios button { flex: 1; height: 42px; border: 1px solid var(--line); background: var(--fill); color: var(--muted); font-size: 14px; }
+.ex-ratios button[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+.ex-sheet .acts .pill { flex: 1; }
+
 /* 拍照找生词：系统相机拍完后直接进结果页 */
 .photo { position: absolute; transform-origin: 0 0; box-shadow: var(--shadow-1); border-radius: 0; overflow: hidden; }
 .photo img { position: absolute; inset: 0; width: 100%; height: 100%; }
