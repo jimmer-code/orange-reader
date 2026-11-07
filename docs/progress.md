@@ -285,3 +285,11 @@
 - 兼容：外屏/内屏横竖屏、沉浸、返回链（查看器→sheet→全屏→文章→列表）；图片查看器同步升级。
 - 模拟器实测（截图 `sandbox/tasks/shubian-notion-kb/mermaid-ui-emulator/`）：内屏 860×608 打开 836px 宽、竖屏 608 原生 100%、外屏 425 打开原生 100% 可拖、整图 contain、旋转 90°、返回位置 944→944；长文 13 张 mermaid 正常。
 - 验证：`node --check`、`gradlew clean testDebugUnitTest lintDebug assembleRelease` 通过；release APK 1.25/26。
+
+### M26 追加三：阅读排版与 Mermaid 暗色（1.26/27）
+- Mermaid：同步侧每图输出浅/暗两版 SVG（同 viewBox），App 按阅读主题互斥显示（quiet/focus、original+系统深色用暗色；旧单版产物兼容）；查看器克隆当前可见那版；viewBox 宽 >1800 加「宽图 · 查看大图」角标，查看器仍按窄屏原生 100% 打开。
+- 章节标题：H2 上间距 48px + 4px 强调竖线 + 1px 虚线（首条无），H3 强调小方块；H1/byline 间距微调；TOC 锚点不变。
+- 代码块：语言标签（Python/JavaScript/SQL/Java…）+ 复制按钮（clipboard 失败退 execCommand，toast 反馈）；复制不含标签栏。
+- 表格：tabular-nums、斑马行、表头/首列 sticky（修 Chromium sticky 偏移）、首列 nowrap、可横滑时右侧渐隐（到最右自动隐藏），窄屏可读性提升。
+- 体积：同步产物 23.19MB（HTML 21.29MB，双版 SVG +9.47MB；上一版 12.85MB）。App 首次同步从约 15MB 增至 23MB；后续增量仍只下变更文章。可后续给 Kb 加 gzip 传输（预计降到 2–4MB）。
+- 验证：模拟器 860×608/608×860/425×623；深浅主题 mermaid 即时切换、查看器取暗色版（fill #26282c）、超宽 3658px 查看器初始 1.0、代码复制 toast「已复制代码」、表格 sticky/渐隐/斑马行正常；`node --check` + gradle 全过；release 1.26/27。

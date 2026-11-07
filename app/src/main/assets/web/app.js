@@ -629,32 +629,134 @@ function kbPrepArticle(doc) {
     if (!img.getAttribute("loading")) img.setAttribute("loading", "lazy");
     img.addEventListener("error", () => img.classList.add("kb-img-missing"), { once: true });
   });
-  $$("figure svg, .kb-mm svg", doc).forEach(s => {
-    let vb = (s.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
-    if ((vb.length < 4 || !(vb[2] > 0)) && s.getAttribute("width") && s.getAttribute("height")) {
-      const w = parseFloat(s.getAttribute("width")), h = parseFloat(s.getAttribute("height"));
-      if (w > 0 && h > 0) { s.setAttribute("viewBox", `0 0 ${w} ${h}`); vb = [0, 0, w, h]; }
-    }
-    s.removeAttribute("width");
-    s.removeAttribute("height");
-    s.style.width = "";
-    s.style.height = "";
-    s.style.maxWidth = "";
-    if (vb.length >= 4) {
-      s.setAttribute("viewBox", `0 0 ${vb[2]} ${vb[3]}`);
-      if (vb[3] / vb[2] > 1.6) s.style.maxWidth = `calc(68vh * ${(vb[2] / vb[3]).toFixed(4)})`;
-    }
-    // 文内统一自适应宽度（CSS width:100%，高图 max-height:68vh 兜底），不再横向滚动
-    const fig = s.closest("figure");
-    if (fig) {
-      fig.classList.add("kb-mm");
-      if (!$(".kb-mm-badge", fig)) {
-        const badge = el("span", "kb-mm-badge", `${I.expand}<span>查看大图</span>`);
-        fig.appendChild(badge);
+  kbPrepMermaid(doc);
+  kbPrepCode(doc);
+  kbPrepTables(doc);
+}
+
+/* mermaid：同一 figure 里可能有 light/dark 两版 SVG（契约），旧产物只有单个当浅色 */
+function kbPrepMermaid(doc) {
+  $$("figure", doc).forEach(fig => {
+    const svgs = [...fig.querySelectorAll("svg")].filter(s => !s.closest(".kb-mm-badge"));
+    if (!svgs.length) return;
+    fig.classList.add("kb-mm");
+    const hasLight = svgs.some(s => s.classList.contains("kb-mm-light"));
+    const hasDark = svgs.some(s => s.classList.contains("kb-mm-dark"));
+    if (!hasLight && !hasDark) svgs[0].classList.add("kb-mm-light");          // 旧单图 = 浅色
+    else if (!hasLight && svgs.length > 1) svgs[0].classList.add("kb-mm-light");
+    let ultra = false;
+    svgs.forEach(s => {
+      let vb = (s.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
+      if ((vb.length < 4 || !(vb[2] > 0)) && s.getAttribute("width") && s.getAttribute("height")) {
+        const w = parseFloat(s.getAttribute("width")), h = parseFloat(s.getAttribute("height"));
+        if (w > 0 && h > 0) { s.setAttribute("viewBox", `0 0 ${w} ${h}`); vb = [0, 0, w, h]; }
       }
-    }
+      s.removeAttribute("width");
+      s.removeAttribute("height");
+      s.style.width = "";
+      s.style.height = "";
+      s.style.maxWidth = "";
+      if (vb.length >= 4) {
+        s.setAttribute("viewBox", `0 0 ${vb[2]} ${vb[3]}`);
+        if (vb[3] / vb[2] > 1.6) s.style.maxWidth = `calc(68vh * ${(vb[2] / vb[3]).toFixed(4)})`;
+        if (vb[2] > 1800) ultra = true;
+      }
+    });
+    if (ultra) fig.classList.add("kb-mm-ultra");
+    let badge = $(".kb-mm-badge", fig);
+    if (!badge) { badge = el("span", "kb-mm-badge"); fig.appendChild(badge); }
+    badge.innerHTML = `${I.expand}<span>${ultra ? "宽图 · 查看大图" : "查看大图"}</span>`;
   });
 }
+
+/* 代码块：语言标签 + 复制按钮（复制内容不含标签栏） */
+const KB_LANG = {
+  py: "Python", python: "Python", python3: "Python", ipython: "Python",
+  js: "JavaScript", javascript: "JavaScript", mjs: "JavaScript", jsx: "JavaScript",
+  ts: "TypeScript", typescript: "TypeScript", tsx: "TypeScript",
+  sql: "SQL", sh: "Shell", bash: "Shell", shell: "Shell", zsh: "Shell", console: "Shell",
+  java: "Java", kotlin: "Kotlin", go: "Go", rust: "Rust", ruby: "Ruby", php: "PHP",
+  c: "C", cpp: "C++", "c++": "C++", cxx: "C++", csharp: "C#", "c#": "C#", cs: "C#",
+  html: "HTML", xml: "XML", css: "CSS", scss: "SCSS", json: "JSON", yaml: "YAML", yml: "YAML",
+  toml: "TOML", ini: "INI", diff: "Diff", patch: "Diff", mermaid: "Mermaid",
+  text: "TEXT", txt: "TEXT", plain: "TEXT", plaintext: "TEXT", markdown: "Markdown", md: "Markdown"
+};
+function kbLangName(code) {
+  const m = (code.className || "").match(/(?:language|lang)-([\w+#.-]+)/i);
+  const raw = m ? m[1].toLowerCase() : "";
+  return KB_LANG[raw] || (raw ? raw.toUpperCase() : "TEXT");
+}
+function kbPrepCode(doc) {
+  $$("pre", doc).forEach(pre => {
+    if (pre.closest(".kb-codewrap")) return;
+    const code = pre.querySelector("code") || pre;
+    const wrap = el("div", "kb-codewrap");
+    const bar = el("div", "kb-code-bar",
+      `<span class="kb-lang">${esc(kbLangName(code))}</span><button class="kb-copy" type="button" data-kb-copy>复制</button>`);
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(bar);
+    wrap.appendChild(pre);
+  });
+}
+function kbCopyFallback(text) {
+  try {
+    const ta = el("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch (e) { return false; }
+}
+function kbCopyText(text) {
+  return new Promise(resolve => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => resolve(true)).catch(() => resolve(kbCopyFallback(text)));
+        return;
+      }
+    } catch (err) { /* 继续走兜底 */ }
+    resolve(kbCopyFallback(text));
+  });
+}
+function kbCopyCode(btn) {
+  const wrap = btn.closest(".kb-codewrap");
+  const pre = wrap && wrap.querySelector("pre");
+  if (!pre) return;
+  kbCopyText(pre.textContent).then(ok => {
+    btn.textContent = ok ? "已复制" : "复制失败";
+    toast(ok ? "已复制代码" : "复制失败");
+    setTimeout(() => { btn.textContent = "复制"; }, 1400);
+  });
+}
+
+/* 表格：外包一层做右侧渐隐提示；表头/首列 sticky 由 CSS 完成 */
+function kbPrepTables(doc) {
+  $$("table", doc).forEach(tbl => {
+    let tw = tbl.closest(".kb-tw");
+    if (!tw) {
+      tw = el("div", "kb-tw");
+      tbl.parentNode.insertBefore(tw, tbl);
+      tw.appendChild(tbl);
+    }
+    if (tw.closest(".kb-tw-wrap")) return;
+    const wrap = el("div", "kb-tw-wrap");
+    tw.parentNode.insertBefore(wrap, tw);
+    wrap.appendChild(tw);
+    const update = () => {
+      const max = Math.max(0, tw.scrollWidth - tw.clientWidth);
+      wrap.classList.toggle("can-scroll", max > 4);
+      wrap.classList.toggle("at-end", max <= 4 || tw.scrollLeft >= max - 4);
+    };
+    tw.addEventListener("scroll", update, { passive: true });
+    update();
+    requestAnimationFrame(update);
+    setTimeout(update, 200);
+  });
+}
+
 function kbRestoreArticle(host, a) {
   const p = KB.prog[a.id];
   KB.userScrolled = false;
@@ -930,7 +1032,10 @@ function kbOpenViewer(kind, payload, caption) {
   v.classList.add("on");
   requestAnimationFrame(() => kbvFit("width"));
 }
-function kbFigSvg(fig) { return [...fig.querySelectorAll("svg")].find(s => !s.closest(".kb-mm-badge")) || null; }
+function kbFigSvg(fig) {
+  const svgs = [...fig.querySelectorAll("svg")].filter(s => !s.closest(".kb-mm-badge"));
+  return svgs.find(s => getComputedStyle(s).display !== "none") || svgs[0] || null;
+}
 function kbZoom(src) { kbOpenViewer("img", src, ""); }
 function kbOpenArticle(articleId) {
   const x = kbFind(articleId);
@@ -990,6 +1095,8 @@ function renderKb() {
 /* ---------- 课程页事件 ---------- */
 scr.addEventListener("click", e => {
   if (e.target.closest("#kb-viewer")) return;   // 查看器内部的按钮/空白由 #kb-viewer 处理
+  const copyBtn = e.target.closest("[data-kb-copy]");
+  if (copyBtn) { e.preventDefault(); kbCopyCode(copyBtn); return; }
   const kbBtn = e.target.closest("[data-kb]");
   if (kbBtn) {
     const act = kbBtn.dataset.kb;

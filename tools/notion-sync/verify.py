@@ -195,20 +195,45 @@ class Checker:
                 if 'loading="lazy"' not in html:
                     self.fail(f"{cid}/{aid} img 缺 loading=lazy")
 
-            # mermaid
-            mm_svg = len(re.findall(r'<figure class="kb-mm">\s*<svg', html))
+            # mermaid：每个 figure 必须浅/暗两版，viewBox 完全一致；不允许旧结构
+            mm_pairs = 0
+            for fig in re.findall(r'<figure class="kb-mm">([\s\S]*?)</figure>', html):
+                svgs = re.findall(r"<svg\b[^>]*>", fig)
+                if len(svgs) != 2:
+                    self.fail(f"{cid}/{aid} mermaid figure 里 svg 数 {len(svgs)}（应为 2：light/dark）")
+                    continue
+                classes = []
+                vbs = []
+                ok_svg = True
+                for tag in svgs:
+                    cm = re.search(r'class="([^"]*)"', tag)
+                    vm = re.search(r'viewBox="([^"]+)"', tag)
+                    classes.append(cm.group(1) if cm else "")
+                    vbs.append(vm.group(1) if vm else "")
+                    if re.search(r"\swidth=", tag):
+                        self.fail(f"{cid}/{aid} mermaid svg 仍带 width")
+                        ok_svg = False
+                    if not vm:
+                        self.fail(f"{cid}/{aid} mermaid svg 缺 viewBox")
+                        ok_svg = False
+                if "kb-mm-light" not in classes[0] or "kb-mm-dark" not in classes[1]:
+                    self.fail(f"{cid}/{aid} mermaid svg class 不是 light/dark 顺序：{classes}")
+                    ok_svg = False
+                if vbs[0] != vbs[1]:
+                    self.fail(f"{cid}/{aid} mermaid light/dark viewBox 不一致：{vbs}")
+                    ok_svg = False
+                if ok_svg:
+                    mm_pairs += 1
             mm_fallback = len(re.findall(r'<pre><code class="language-mermaid">', html))
-            if mm_svg + mm_fallback != int(art.get("mermaid") or 0):
-                self.fail(f"{cid}/{aid} mermaid 数 {mm_svg}+{mm_fallback} 与 index {art.get('mermaid')} 不符")
-            mermaid_ok += mm_svg
+            total_svg = len(re.findall(r"<svg\b[^>]*>", html))
+            if total_svg != mm_pairs * 2:
+                self.fail(f"{cid}/{aid} mermaid svg 总数 {total_svg} != figure 数 {mm_pairs}×2（旧结构/单版）")
+            if "kb-mm-wide" in html:
+                self.fail(f"{cid}/{aid} 出现已废弃的 kb-mm-wide")
+            if mm_pairs + mm_fallback != int(art.get("mermaid") or 0):
+                self.fail(f"{cid}/{aid} mermaid 数 {mm_pairs}+{mm_fallback} 与 index {art.get('mermaid')} 不符")
+            mermaid_ok += mm_pairs
             mermaid_fallback += mm_fallback
-            for svg in re.findall(r"<svg\b[^>]*>", html):
-                if "viewBox=" not in svg:
-                    self.fail(f"{cid}/{aid} mermaid svg 缺 viewBox")
-                    break
-                if re.search(r"\swidth=", svg):
-                    self.fail(f"{cid}/{aid} mermaid svg 仍带 width")
-                    break
 
             # 内链
             for href in LINK_RE.findall(html):

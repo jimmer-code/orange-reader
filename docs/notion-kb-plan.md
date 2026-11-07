@@ -212,6 +212,7 @@ Notion API 参考：[Retrieve a page as markdown](https://developers.notion.com/
 - P2 App：已完成并实测。第 4 标签「课程」；外屏列表/全屏阅读、内屏 300+352dp 分栏；6 套主题、字号/行距、进度、离线缓存、图片放大、mermaid SVG、内链跳转；release APK 1.23/24 为 25,132,028 B（+8.1KB）。模拟器外屏/内屏/折叠/暗色/断网重开截图在 `../sandbox/tasks/shubian-notion-kb/emulator-screens/`。
 - 2026-11-07 追加：内屏（小米 18 Fold）阅读优化——默认全屏正文、顶栏随滚动收放、沉浸模式隐藏系统栏并记忆偏好、横屏 38em/竖屏满宽、旋转按比例保持滚动位置；1.24/25 发布。旧的内屏「左列表+右窄栏」截图作废。
 - 2026-11-07 追加二：Mermaid 体验——文内不再横滑（自适应宽度/高图 68vh）、每图「查看大图」角标；新增统一全屏媒体查看器（mermaid+图片）：适应宽度/整图/按钮与捏合缩放/拖动/旋转/双击，窄屏原生 100% 打开看细节；1.25/26 发布。
+- 2026-11-07 追加三：排版优化——Mermaid 浅/暗双版本（同步侧双渲染，App 按主题切换，查看器取可见版）、H2 强调竖线+虚线分隔/H3 方块、代码块语言标签+复制、表格 sticky 表头/首列+斑马行+横滑渐隐；1.26/27 发布。同步产物因双版 SVG 增至 23.19MB（App 首同步 23MB），可后续加 gzip 传输。
 - P3 未做：宽 mermaid 暗色双份 SVG、未收录内链的外部链接、仅 WiFi 同步、Kuma 心跳。
 - 运维：`~/.config/shubian-kb/env`（600）存 Notion token 与内容 secret；Caddy 片段在 `~/ops-hub/deploy/fold-ds-updates/Caddyfile`（服务器 `/opt/ops-hub/`），改前备份 `Caddyfile.pre-shubian-kb-20261107`。
 - 注意：改 cleaner/HTML 模板后必须 `bash run.sh --full --publish` 全量重烘焙；App 端按每篇内容 `sha` 判断增量（不要只看 Notion `updated`）。

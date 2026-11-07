@@ -778,18 +778,26 @@ def resolve_image_path(fixtures: Path, url: str) -> Path | None:
 # ---------------------------------------------------------------- mermaid
 
 
-def render_mermaids(items: list[dict], cfg: dict, work_dir: Path) -> dict[str, str]:
-    """items: [{id, code}]；返回 {id: svg}。失败的 id 不在结果里（调用方 fallback）。"""
+def render_mermaids(items: list[dict], cfg: dict, work_dir: Path) -> dict[str, dict]:
+    """items: [{id, code}]；返回 {id: {light, dark}}（两版 viewBox 相同）。
+
+    缓存按「源码 hash」分浅/暗两个文件；失败的 id 不在结果里（调用方 fallback 源码）。
+    """
     if not items:
         return {}
     cache_dir = work_dir / "mermaid-cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     pending: list[dict] = []
-    svgs: dict[str, str] = {}
+    svgs: dict[str, dict] = {}
     for item in items:
-        cache_file = cache_dir / f"{item['id']}.svg"
-        if cache_file.exists() and cache_file.stat().st_size > 0:
-            svgs[item["id"]] = cache_file.read_text(encoding="utf-8")
+        light_file = cache_dir / f"{item['id']}.light.svg"
+        dark_file = cache_dir / f"{item['id']}.dark.svg"
+        if (light_file.exists() and light_file.stat().st_size > 0
+                and dark_file.exists() and dark_file.stat().st_size > 0):
+            svgs[item["id"]] = {
+                "light": light_file.read_text(encoding="utf-8"),
+                "dark": dark_file.read_text(encoding="utf-8"),
+            }
         else:
             pending.append(item)
     if not pending:
@@ -834,11 +842,14 @@ def render_mermaids(items: list[dict], cfg: dict, work_dir: Path) -> dict[str, s
         log(f"mermaid 渲染失败（退出码 {proc.returncode}）：{tail}", err=True)
         return svgs
     for entry in payload.get("ok") or []:
-        path = Path(entry.get("path") or "")
-        if path.is_file():
-            svg = path.read_text(encoding="utf-8")
-            svgs[entry.get("id")] = svg
-            (cache_dir / f"{entry.get('id')}.svg").write_text(svg, encoding="utf-8")
+        light_path = Path(entry.get("light") or "")
+        dark_path = Path(entry.get("dark") or "")
+        if light_path.is_file() and dark_path.is_file():
+            light = light_path.read_text(encoding="utf-8")
+            dark = dark_path.read_text(encoding="utf-8")
+            svgs[entry.get("id")] = {"light": light, "dark": dark}
+            (cache_dir / f"{entry.get('id')}.light.svg").write_text(light, encoding="utf-8")
+            (cache_dir / f"{entry.get('id')}.dark.svg").write_text(dark, encoding="utf-8")
     for entry in payload.get("errors") or []:
         log(f"mermaid 渲染失败 {entry.get('id')}: {entry.get('error')}", err=True)
     return svgs
@@ -1112,9 +1123,10 @@ def build(args: argparse.Namespace) -> int:
         for item in changed_articles:
             for block in walk_blocks(item["article"]["blocks"]):
                 if block.type == "mermaid":
-                    svg = mm_svgs.get(mdparse.media_key(block.code))
-                    if svg:
-                        block.svg = svg
+                    pair = mm_svgs.get(mdparse.media_key(block.code))
+                    if pair and pair.get("light") and pair.get("dark"):
+                        block.svg = pair["light"]
+                        block.svg_dark = pair["dark"]
                         mermaid_ok += 1
                     else:
                         mermaid_failed += 1

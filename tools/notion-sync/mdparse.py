@@ -68,7 +68,8 @@ class Block:
     icon: str = ""
     title: str = ""
     media: dict | None = None      # {sha, ext, w, h}
-    svg: str = ""
+    svg: str = ""                  # 浅色版内联 SVG
+    svg_dark: str = ""             # 暗色版内联 SVG（与浅色版 viewBox 相同）
     error: str = ""
     meta: dict = field(default_factory=dict)
 
@@ -1052,10 +1053,11 @@ def render_article(
             cls = f' class="language-{esc(lang)}"' if lang else ""
             return f"<pre><code{cls}>{esc(b.code)}</code></pre>"
         if b.type == "mermaid":
-            if b.svg:
+            # 必须浅/暗两版同时存在才输出 figure；任一缺失退回源码，避免产生旧结构
+            if b.svg and b.svg_dark:
                 cap = f"<figcaption>{inline.render(b.caption)}</figcaption>" if b.caption else ""
                 stats["mermaid"] += 1
-                return f'<figure class="kb-mm">{b.svg}{cap}</figure>'
+                return f'<figure class="kb-mm">{b.svg}{b.svg_dark}{cap}</figure>'
             stats["mermaid_failed"] += 1
             return f'<pre><code class="language-mermaid">{esc(b.code)}</code></pre>'
         if b.type == "table":

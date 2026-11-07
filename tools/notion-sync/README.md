@@ -127,9 +127,30 @@ secret 路径会打码成 `<REMOTE_DIR>`，不会落盘。远端 Caddy 侧：`in
   `<pre><code class="language-math">` 原样展示，避免 LaTeX 的 `\`/`\[` 被当成 Markdown 转义。
 
 素材：图片按字节 sha256 内容寻址；Pillow 转 WebP（长边 ≤1600、q82，透明图保留 alpha）。
-mermaid 用本机 Chrome 批量渲染为内联 SVG（`fontSize: 24`，Fusion Pixel 12px 的 2 倍整数倍，
-缩到手机宽度时接近整数缩放；不要让 App 再改 SVG 字号，会破坏节点宽度）；失败保留
-`<pre><code class="language-mermaid">` 源码。SVG 缓存在 `state/mermaid-cache/<code_hash>.svg`。
+
+mermaid 每个代码块同步渲染**浅色 + 暗色两版内联 SVG**，同一个 `figure.kb-mm` 里并排输出
+`<svg class="… kb-mm-light">` 与 `<svg class="… kb-mm-dark">`（共用 figcaption，App 按阅读主题
+显示其中一版；不再产生 `kb-mm-wide` / 单 SVG 旧结构）：
+
+```html
+<figure class="kb-mm">
+  <svg class="flowchart kb-mm-light" viewBox="0 0 1172 154">…</svg>
+  <svg class="flowchart kb-mm-dark"  viewBox="0 0 1172 154">…</svg>
+  <figcaption>图1：…</figcaption>
+</figure>
+```
+
+- 两版用同一个渲染函数跑两遍（仅 theme 不同），渲染器断言 **viewBox 完全一致**；不一致按失败
+  退回源码，不产出单版 figure。
+- 暗色主题：`theme:'dark'` + themeVariables 覆盖 —— 透明背景、卡片面 `#26282c`、文字/边
+  `#c9ccd1`、强调色朱红 `#a9471d`（`render_mermaid.mjs` 顶部 `DARK_THEME_VARIABLES`）。
+- 浅色版保持原 `default` 主题（视觉不变），`fontSize: 24`（Fusion Pixel 12px 的整数倍）。
+- 两版 SVG 缓存 `state/mermaid-cache/<code_hash>.{light,dark}.svg`；任一版渲染失败则整图回退
+  `<pre><code class="language-mermaid">`，不计 figure。
+- 超宽图（viewBox 宽 >1800 的图约 86 个、>2400 有 13 个、最宽 3658）：产物侧**不做**全局/逐图
+  收窄——SVG 本身是矢量、CSS 已自适应宽度；再压窄只能改图源布局（nodeSpacing/rankSpacing/
+  wrappingWidth/字号）或强制改 viewBox，会失真或裁切，且全局 config 会伤害其余图。建议 App
+  阅读器对宽图提供横向滚动/缩放/全屏（App 侧超大图优化），同步侧只保留原始 viewBox。
 
 ## 校验
 

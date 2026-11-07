@@ -69,7 +69,7 @@
     <h2 id="kb-s1">一、这门课到底在讲什么</h2>
     <p>…</p>
     <figure><img src="/kb/i/<sha>.webp" width="1400" height="900" loading="lazy" alt=""><figcaption>图注：…</figcaption></figure>
-    <figure class="kb-mm"><svg …>…</svg><figcaption>图1：…</figcaption></figure>
+    <figure class="kb-mm"><svg class="kb-mm-light" …>…</svg><svg class="kb-mm-dark" …>…</svg><figcaption>图1：…</figcaption></figure>
     <div class="kb-tw"><table>…</table></div>
     <pre><code class="language-python">…</code></pre>
     <blockquote>…</blockquote>
@@ -80,7 +80,7 @@
 - 必须：
   - `h2/h3` 带稳定 `id`（TOC 用），不要依赖 `h1`。
   - 图片一律 `/kb/i/<sha>.<ext>`，必须带 `width/height`、`loading="lazy"`、`alt`（可空）。**不得出现 Notion 域名、签名 URL、`notion-file-block://`。**
-  - mermaid 一律同步侧渲染为**内联 SVG**（`<figure class="kb-mm">`）；渲染失败时保留 `<pre><code class="language-mermaid">源码</code></pre>`。
+  - mermaid 一律同步侧渲染为**内联 SVG**（`<figure class="kb-mm">`），同时输出浅色/暗色两版：`svg.kb-mm-light` 与 `svg.kb-mm-dark`，viewBox 必须相同，App 按阅读主题互斥显示、查看器取当前可见那版；渲染失败时保留 `<pre><code class="language-mermaid">源码</code></pre>`。
   - 表格外包 `<div class="kb-tw">`（App 负责横向滚动）。
   - 内部文章链接用 `/kb/a/<course>/<article>.html` + `data-kb-article`；外链加 `data-external="1"`。
   - 不含 `<script>`、`<iframe>`、`on*` 事件属性、`<style>`（mermaid 自带 `<style>` 除外）。

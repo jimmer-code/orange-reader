@@ -50,13 +50,61 @@ function parseArgs(argv) {
   return out;
 }
 
-function stripRootSvgSize(svg) {
-  // 去掉根 <svg> 的 width/height/style(max-width)，保留 viewBox 让 App 自适应宽度
+// 暗色版配色：透明背景 + 卡片面 #26282c + 文字/边 #c9ccd1 + App accent 朱红 #a9471d
+// 只改 themeVariables，不动物理布局；几何与浅色版保持一致（渲染后断言 viewBox 相等）
+const DARK_THEME_VARIABLES = {
+  background: 'transparent',
+  primaryColor: '#26282c',
+  primaryTextColor: '#c9ccd1',
+  primaryBorderColor: '#a9471d',
+  lineColor: '#c9ccd1',
+  secondaryColor: '#2f3236',
+  tertiaryColor: '#232528',
+  textColor: '#c9ccd1',
+  mainBkg: '#26282c',
+  nodeBorder: '#a9471d',
+  clusterBkg: '#1f2124',
+  clusterBorder: '#3a3d42',
+  edgeLabelBackground: '#26282c',
+  titleColor: '#c9ccd1',
+  actorBkg: '#26282c',
+  actorBorder: '#a9471d',
+  actorTextColor: '#c9ccd1',
+  actorLineColor: '#c9ccd1',
+  signalColor: '#c9ccd1',
+  signalTextColor: '#c9ccd1',
+  labelBoxBkgColor: '#26282c',
+  labelBoxBorderColor: '#a9471d',
+  labelTextColor: '#c9ccd1',
+  loopTextColor: '#c9ccd1',
+  noteBkgColor: '#2f3236',
+  noteTextColor: '#c9ccd1',
+  noteBorderColor: '#4a4d52',
+  sectionBkgColor: '#26282c',
+  altSectionBkgColor: '#232528',
+  sectionBkgColor2: '#232528',
+  taskBkgColor: '#26282c',
+  taskTextColor: '#c9ccd1',
+  taskTextOutsideColor: '#c9ccd1',
+  taskBorderColor: '#4a4d52',
+  activeTaskBkgColor: '#a9471d',
+  activeTaskBorderColor: '#a9471d',
+  doneTaskBkgColor: '#2f3236',
+  doneTaskBorderColor: '#4a4d52',
+  gridColor: '#3a3d42',
+  todayLineColor: '#a9471d',
+};
+
+function stripRootSvgSize(svg, className) {
+  // 去掉根 <svg> 的 width/height/style(max-width)，保留 viewBox 让 App 自适应宽度；
+  // 并给根节点加 kb-mm-light / kb-mm-dark（App 据此切换显示）
   return svg.replace(/<svg\b[^>]*>/, (tag) => {
     let t = tag;
     t = t.replace(/\swidth="[^"]*"/, '');
     t = t.replace(/\sheight="[^"]*"/, '');
     t = t.replace(/\sstyle="[^"]*"/, '');
+    if (/\sclass="/.test(t)) t = t.replace(/\sclass="([^"]*)"/, ` class="$1 ${className}"`);
+    else t = t.replace('<svg', `<svg class="${className}"`);
     if (!/\sxmlns=/.test(t)) t = t.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
     return t;
   });
@@ -122,56 +170,84 @@ svg{max-width:100%;}
       });
     }, { theme: args.theme, fontSize: args.fontSize });
 
+    const meta = JSON.stringify({
+      theme: args.theme,
+      fontSize: args.fontSize,
+      dark: DARK_THEME_VARIABLES,
+    });
     const batch = Math.max(1, Math.min(4, args.maxParallel));
     for (let start = 0; start < items.length; start += batch) {
       const chunk = items.slice(start, start + batch);
-      let rendered;
-      try {
-        rendered = await page.evaluate(async (chunk) => {
-          const out = [];
-          for (const item of chunk) {
-            // 确定性 DOM id：同一段源码渲染出的 SVG 字节可复现，方便内容哈希去重
-            const domId = String(item.dom_id || ('mm' + Math.random().toString(36).slice(2, 10)))
-              .replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60);
-            try {
-              const r = await window.__kbMermaid.render(domId, String(item.code || ''));
-              out.push({ id: item.id, svg: r && r.svg ? r.svg : '', error: null });
-            } catch (err) {
-              out.push({ id: item.id, svg: '', error: String((err && err.message) || err) });
-            }
-          }
-          return out;
-        }, chunk);
-      } catch (err) {
-        // 整个 evaluate 挂了（脚本错误/页面崩），逐张重试一次；仍失败记 error
-        rendered = [];
+      const rendered = await page.evaluate(async (chunk, meta) => {
+        const cfg = JSON.parse(meta);
+        const renderOne = async (code, domId) => {
+          const r = await window.mermaid.render(domId, String(code || ''));
+          return (r && r.svg) || '';
+        };
+        const out = [];
         for (const item of chunk) {
+          const base = String(item.dom_id || ('mm' + Math.random().toString(36).slice(2, 10)))
+            .replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 56);
           try {
-            const r = await page.evaluate(async (item) => {
-              const domId = String(item.dom_id || ('mm' + Math.random().toString(36).slice(2, 10)))
-                .replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60);
-              const out = await window.__kbMermaid.render(domId, String(item.code || ''));
-              return { id: item.id, svg: (out && out.svg) || '', error: null };
-            }, item);
-            rendered.push(r);
-          } catch (e2) {
-            rendered.push({ id: item.id, svg: '', error: String((e2 && e2.message) || e2) });
+            // 浅色
+            window.mermaid.initialize({
+              startOnLoad: false, securityLevel: 'loose', theme: cfg.theme,
+              fontFamily: "'Fusion Pixel', sans-serif", fontSize: cfg.fontSize,
+              flowchart: { htmlLabels: true, useMaxWidth: true, curve: 'basis' },
+              sequence: { useMaxWidth: true }, gantt: { useMaxWidth: true },
+              themeVariables: { fontFamily: "'Fusion Pixel', sans-serif", fontSize: `${cfg.fontSize}px` },
+            });
+            const light = await renderOne(item.code, base + 'L');
+            // 暗色（只换 theme/themeVariables，布局参数保持一致）
+            window.mermaid.initialize({
+              startOnLoad: false, securityLevel: 'loose', theme: 'dark',
+              fontFamily: "'Fusion Pixel', sans-serif", fontSize: cfg.fontSize,
+              flowchart: { htmlLabels: true, useMaxWidth: true, curve: 'basis' },
+              sequence: { useMaxWidth: true }, gantt: { useMaxWidth: true },
+              themeVariables: {
+                fontFamily: "'Fusion Pixel', sans-serif",
+                fontSize: `${cfg.fontSize}px`,
+                ...cfg.dark,
+              },
+            });
+            const dark = await renderOne(item.code, base + 'D');
+            const vb = (svg) => (String(svg).match(/viewBox="([^"]+)"/) || [])[1] || '';
+            out.push({ id: item.id, light, dark, lightViewBox: vb(light), darkViewBox: vb(dark), error: null });
+          } catch (err) {
+            out.push({ id: item.id, light: '', dark: '', lightViewBox: '', darkViewBox: '',
+                       error: String((err && err.message) || err) });
           }
         }
-        if (err && /Target closed|Session closed|Protocol error/i.test(String(err.message))) {
-          throw err;
-        }
-      }
+        return out;
+      }, chunk, meta);
+
       for (const r of rendered) {
-        if (!r || !r.svg || !r.svg.includes('<svg')) {
-          results.errors.push({ id: r ? r.id : '?', error: (r && r.error) || 'empty svg' });
+        if (!r.light || !r.dark || !r.light.includes('<svg') || !r.dark.includes('<svg')) {
+          results.errors.push({ id: r.id, error: r.error || 'empty svg' });
           continue;
         }
-        const svg = stripRootSvgSize(r.svg);
+        if (!r.lightViewBox || r.lightViewBox !== r.darkViewBox) {
+          results.errors.push({
+            id: r.id,
+            error: `viewBox mismatch: light=${r.lightViewBox || '?'} dark=${r.darkViewBox || '?'}`,
+          });
+          continue;
+        }
         const name = await safeName(r.id);
-        const file = path.join(args.outputDir, `${name}.svg`);
-        await writeFile(file, svg, 'utf8');
-        results.ok.push({ id: r.id, path: file, bytes: Buffer.byteLength(svg) });
+        const lightSvg = stripRootSvgSize(r.light, 'kb-mm-light');
+        const darkSvg = stripRootSvgSize(r.dark, 'kb-mm-dark');
+        const lightFile = path.join(args.outputDir, `${name}.light.svg`);
+        const darkFile = path.join(args.outputDir, `${name}.dark.svg`);
+        await writeFile(lightFile, lightSvg, 'utf8');
+        await writeFile(darkFile, darkSvg, 'utf8');
+        results.ok.push({
+          id: r.id,
+          light: lightFile,
+          dark: darkFile,
+          viewBox: r.lightViewBox,
+          bytesLight: Buffer.byteLength(lightSvg),
+          bytesDark: Buffer.byteLength(darkSvg),
+        });
       }
       process.stderr.write(`[mermaid] ${Math.min(start + batch, items.length)}/${items.length}\n`);
     }
