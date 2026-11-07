@@ -1,0 +1,18 @@
+# 插到 ~/ops-hub/deploy/fold-ds-updates/Caddyfile 的 update.lemonation.cloud { ... } 块里，
+# 放在最后的 `handle { respond "Not Found" 404 }` 之前。
+# <secret> 只是目录名（32 位 hex），不进 Caddyfile；错误路径自然 404。
+
+	# --- 书边译 · 课程板块（Notion KB）---
+	# /shubian-kb/<secret>/index.json、status.json 不缓存；其余内容 immutable。
+	@shubian-kb-manifest path_regexp ^/shubian-kb/[0-9a-f]{32}/(index|status)\.json$
+	header @shubian-kb-manifest Cache-Control "no-store"
+
+	@shubian-kb-immutable path_regexp ^/shubian-kb/[0-9a-f]{32}/(media|releases)/.+$
+	header @shubian-kb-immutable Cache-Control "public, max-age=31536000, immutable"
+
+	handle_path /shubian-kb/* {
+		root * /var/www/shubian-kb
+		header X-Robots-Tag "noindex, nofollow"
+		header X-Content-Type-Options "nosniff"
+		file_server
+	}

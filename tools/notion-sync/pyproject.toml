@@ -1,0 +1,13 @@
+[project]
+name = "shubian-notion-sync"
+version = "0.1.0"
+description = "Notion 知识库 → 书边译课程板块静态内容包同步管线"
+requires-python = ">=3.12"
+dependencies = [
+  "requests>=2.32",
+  "Pillow>=11",
+  "PyYAML>=6",
+]
+
+[tool.uv]
+package = false

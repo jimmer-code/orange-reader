@@ -261,3 +261,12 @@
 - 送给模型的上下文没动——书名和所在段落仍然在 `<context>` 里参与翻译，只是不再显示给用户看。
 - 验证：headless 夹具调 `renderReadingTarget()`，卡片里 `.target-context` 为 0 个，结构是「句子 / 原文 / 译文 / 保存句子 + 分享书摘」。
 - 发布：1.22 / versionCode 23。
+
+### M26 课程板块：Notion 知识库阅读（1.23/24）
+用户需求：在 App 里新增板块，手机上读 Notion 知识库的课程文章；只要课程标题 + 文章正文，不要导读；图解和流程图要能看；Notion 后续新增的笔记要能同步。
+- **App**：第 4 个标签「课程」。课程列表（继续阅读卡、4 门课、已读进度）→ 文章列表（阅读时长/已读/新）→ 阅读页。外屏全屏阅读层，内屏左 300dp 列表 + 右 352dp 文章（可切「专注」560dp）；复用书阅读器的 6 套主题、字号/行距/字体与进度；mermaid 内联 SVG、图片可点开放大、宽图 1:1 横向滚动；内链跳转、外链 `N.openExternal`。首屏读本地索引，缓存 >6h 或手动才同步；离线显示缓存。新增 `Kb.java`（增量下载/原子写/重试/取消/GC/路径校验）+ `/kb/` 本地路由（no-store）+ 6 个桥方法；`KB_BASE`/`KB_TOKEN` 走 `local.properties` 注入 BuildConfig。阅读设置面板拆掉 `if (!R) return;` 闸门，抽出通用 setter。
+- **同步管线** `tools/notion-sync`：Notion API（2026-03-11，`/v1/pages/{id}/markdown?markdown_version=v2`，截断补取、回退 block children）；发现课程 hub 子页、分区页递归展开、排除作业/毕业项目/模板/综合/待发布占位；按标题自然排序（第N讲/A1/T1）；正文清洗（去导语/页眉/状态/残句，保留核心要点回顾、来源、图注）；Markdown→契约 HTML；图片当轮下载转 WebP；mermaid 用本机 Chrome + Fusion Pixel 预渲染 SVG；`index.json`（含每篇内容 sha）原子发布、release 保留 3 份、`--publish` rsync 到 VPS；`verify.py` 契约校验（含 escape/Notion URL/script 负例）。
+- **部署**：jimmy `/var/www/shubian-kb/<128bit secret>/`；`update.lemonation.cloud/shubian-kb/*` 走 Caddy（index/status no-store、media/releases immutable、X-Robots-Tag noindex，错误路径 404）；Mac launchd `com.jimmy.shubian-kb-sync` 每 30 分钟 `run.sh --publish`（增量约 40–80 秒）；ops-hub 登记 `shubian-kb`，workspace INDEX 登记。Notion 用只读 internal connection token，只在 `~/.config/shubian-kb/env`（600）。
+- **内容**：80 篇（CS2680 12、Berkeley 12、量化 48、架构 8），图 66 张 1.9MB、mermaid 436 张 SVG、HTML 12.85MB（总 14.84MB）；转义残留 0；index 每篇带内容 sha（App 按 sha 判断正文重下）。
+- **验证**：`node --check` / `gradlew assembleRelease` / `lintDebug` 通过，release APK 25,132,028 B（+8.1KB）；模拟器外屏/内屏/折叠、深浅主题、真实同步、断网重开、图片与 mermaid 渲染都实测（截图在 `sandbox/tasks/shubian-notion-kb/emulator-screens/`）；发布后改文章 30 分钟内 App 可拿到新 release。
+- 偏差/待办：宽 mermaid 在暗色下仍是浅底（可后续出双份 SVG）；内链指向未收录文章目前只 toast；「仅 WiFi 同步」和 Kuma 心跳未接。

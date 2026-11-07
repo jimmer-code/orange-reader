@@ -59,6 +59,8 @@ const qid = w => w.replace(/[^a-z0-9]/g, "_");
 const hash = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
 const I = {
   lib: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3.5" y="4" width="4.5" height="16" rx="1"/><rect x="9.5" y="4" width="4.5" height="16" rx="1"/><path d="M16 5.2l3.9-1 2.6 15.7-3.9 1z"/></svg>',
+  kb: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 5.5h5.6c.9 0 1.7.4 2.4 1.1.7-.7 1.5-1.1 2.4-1.1H20v12.4h-5.6c-.9 0-1.7.4-2.4 1.1-.7-.7-1.5-1.1-2.4-1.1H4z"/><path d="M12 6.6v12.4"/></svg>',
+  sync: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.8 3.9v4.6h-4.6"/></svg>',
   words: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M6 3.5h12a1 1 0 0 1 1 1v16l-7-4-7 4v-16a1 1 0 0 1 1-1z"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
@@ -172,12 +174,14 @@ scr.innerHTML = CARD ? `
       <div class="brand">书边译</div>
       <button data-tab="physical" aria-current="true">${I.search}<span>查单词</span></button>
       <button data-tab="library" aria-current="false">${I.lib}<span>书库</span></button>
+      <button data-tab="kb" aria-current="false">${I.kb}<span>课程</span></button>
       <button data-tab="words" aria-current="false">${I.words}<span>生词本</span></button>
       <button class="gear" data-act="settings">${I.gear}<span>设置</span></button>
     </nav>
     <div class="views">
       <section class="view v-physical home" id="v-physical"></section>
       <section class="view v-library" id="v-library" hidden></section>
+      <section class="view v-kb" id="v-kb" hidden></section>
       <section class="view v-words" id="v-words" hidden></section>
     </div>
   </div>
@@ -242,6 +246,7 @@ scrim.addEventListener("click", closeSheet);
 
 /* ---------- 标签切换 ---------- */
 function setTab(tab, focus = true) {
+  if (st.tab === "kb" && tab !== "kb") kbLeaveRead();
   st.tab = tab; st.pick = null;
   $$(".nav button[data-tab]").forEach(b => b.setAttribute("aria-current", b.dataset.tab === tab));
   $$(".view").forEach(v => { const on = v.id === "v-" + tab; v.hidden = !on; if (on) { v.classList.remove("enter"); void v.offsetWidth; v.classList.add("enter"); } });
@@ -249,7 +254,7 @@ function setTab(tab, focus = true) {
   // 不自动聚焦搜索框：进入查单词页只展示界面，键盘由用户点输入框再弹
   if (st.kb) N.keyboard(false);
 }
-function render(tab) { ({ library: renderLibrary, physical: renderPhysical, words: renderWords })[tab](); }
+function render(tab) { ({ library: renderLibrary, physical: renderPhysical, kb: renderKb, words: renderWords })[tab](); }
 if (!CARD) {
   $(".nav").addEventListener("click", e => {
     const b = e.target.closest("button[data-tab]"); if (b) { setTab(b.dataset.tab); return; }
@@ -321,6 +326,419 @@ handlers.import = d => {
   $("#v-library").scrollTo({ top: 0, behavior: "smooth" });
   setTimeout(() => { b.importing = false; if (st.tab === "library" && !st.book) renderLibrary(); toast(`已导入《${b.title}》`); }, reduced ? 0 : 1100);
 };
+
+/* ===================== 课程 / 知识库 =====================
+   数据来自原生桥（N.kbIndex / N.kbSync / N.kbStats）和本地 /kb/ 路由，契约见
+   docs/notion-kb-contract.md。状态放在独立的 KB 对象里（st.kb 是键盘标志，别混）。 */
+const KB = {
+  view: "courses", course: null, article: null, index: null,
+  status: "idle", lastSync: 0, errMsg: "", syncDone: 0, syncTotal: 0,
+  prog: kv.get("kbprog", {}) || {}, seen: kv.get("kbseen", {}) || {},
+  autoTried: false, mounted: "", fetched: {}, scroll: {}, userScrolled: false
+};
+const KB_STALE = 6 * 3600e3;
+const kbSave = () => { kv.set("kbprog", KB.prog); kv.set("kbseen", KB.seen); kv.set("kblast", KB.lastSync); };
+function kbParseIndex(raw) {
+  if (!raw) return null;
+  try { const o = typeof raw === "string" ? JSON.parse(raw) : raw; return o && o.courses ? o : null; } catch (e) { return null; }
+}
+function kbLoadIndex() {
+  try { if (typeof N.kbIndex === "function") KB.index = kbParseIndex(N.kbIndex()) || KB.index; } catch (e) { /* 旧版原生没有桥 */ }
+  if (!KB.lastSync) KB.lastSync = kv.get("kblast", 0) || 0;
+}
+function kbCourses() { return (KB.index && KB.index.courses) || []; }
+function kbCourseById(id) { return kbCourses().find(c => c.id === id) || null; }
+function kbArticles(c) { return (c && c.articles) || []; }
+function kbAll() { const out = []; kbCourses().forEach(c => kbArticles(c).forEach(a => out.push({ c, a }))); return out; }
+function kbFind(articleId) { return kbAll().find(x => x.a.id === articleId) || null; }
+function kbIsSeen(a) { return !!a && KB.seen[a.id] != null; }
+function kbIsNew(a) { return !!a && KB.seen[a.id] !== (a.updated || ""); }
+function kbPct(a) { const p = KB.prog[a.id]; return p && p.pct > 0 ? Math.min(100, Math.round(p.pct * 100)) : 0; }
+function kbReadMin(a) { return a && a.read_min ? a.read_min : Math.max(1, Math.ceil(((a && a.words) || 0) / 450)); }
+function kbCourseProgress(c) {
+  const list = kbArticles(c);
+  return [list.filter(a => kbIsSeen(a)).length, list.length];
+}
+function kbLastRead() {
+  let best = null;
+  Object.keys(KB.prog).forEach(id => {
+    const x = kbFind(id); if (!x || !KB.prog[id] || !KB.prog[id].at) return;
+    if (!best || KB.prog[id].at > best.at) best = { ...x, at: KB.prog[id].at };
+  });
+  return best || (kbAll()[0] || null);
+}
+function kbNeedsSync() { return !KB.index || !KB.lastSync || Date.now() - KB.lastSync > KB_STALE; }
+
+/* ---------- 同步 ---------- */
+function kbSync(manual) {
+  if (KB.status === "syncing") return;
+  if (typeof N.kbSync !== "function") { KB.status = "error"; KB.errMsg = "当前版本还不支持课程同步"; renderKb(); return; }
+  KB.status = "syncing"; KB.syncDone = 0; KB.syncTotal = 0; KB.errMsg = "";
+  renderKb();
+  try { N.kbSync((KB.index && KB.index.release) || ""); }
+  catch (e) { KB.status = "error"; KB.errMsg = "同步失败"; renderKb(); }
+}
+function kbSyncFail(msg) { KB.status = "error"; KB.errMsg = msg || "同步失败"; renderKb(); }
+function kbSyncFinish() {
+  KB.status = "idle"; KB.lastSync = Date.now(); KB.syncDone = KB.syncTotal = 0;
+  kbLoadIndex(); kbSave(); KB.mounted = ""; KB.fetched = {};
+  renderKb();
+}
+function kbStatHTML() {
+  if (KB.status === "syncing") {
+    const n = KB.syncTotal ? ` ${KB.syncDone}/${KB.syncTotal}` : "…";
+    return `<span class="kb-sync"><span class="ring"></span>同步中${n}</span>`;
+  }
+  if (KB.status === "error") {
+    return `<span class="kb-off" title="${esc(KB.errMsg || "")}">离线 · 显示缓存</span><button class="txt-btn" data-kb="sync">重试</button>`;
+  }
+  const min = KB.lastSync ? Math.floor((Date.now() - KB.lastSync) / 60000) : -1;
+  const when = min < 0 ? "尚未同步" : min < 1 ? "已更新 · 刚刚" : min < 60 ? `已更新 · ${min} 分钟前` : `已更新 · ${Math.floor(min / 60)} 小时前`;
+  return `<span class="kb-when">${when}</span><button class="txt-btn" data-kb="sync">刷新</button>`;
+}
+function kbStatusBar() { return `<div class="kb-stat">${kbStatHTML()}</div>`; }
+function kbRefreshStatus() { $$(".kb-stat").forEach(n => { n.innerHTML = kbStatHTML(); }); }
+handlers.kb = d => {
+  d = d || {};
+  const state = d.state || (d.error ? "error" : "progress");
+  if (d.total != null) KB.syncTotal = d.total;
+  if (d.done != null) KB.syncDone = d.done;
+  if (state === "error") { KB.status = "error"; KB.errMsg = d.msg || "同步失败"; renderKb(); return; }
+  if (state === "done" || state === "ok") { kbSyncFinish(); return; }
+  if (KB.status !== "syncing") { KB.status = "syncing"; renderKb(); return; }
+  kbRefreshStatus();
+};
+handlers.kbIndex = idx => {
+  const parsed = kbParseIndex(idx);
+  if (!parsed) return;
+  KB.index = parsed; KB.autoTried = true;
+  KB.status = "idle"; KB.lastSync = Date.now(); KB.syncDone = KB.syncTotal = 0;
+  KB.mounted = ""; KB.fetched = {}; kbSave(); renderKb();
+};
+
+/* ---------- 列表 ---------- */
+function kbListScrollEl() {
+  if (KB.view === "read") return null;
+  const v = $("#v-kb");
+  if (!v) return null;
+  return st.screen === "inner" && KB.view !== "courses" ? $(".kb-col", v) : v;
+}
+function kbScrollKey() { return KB.view + ":" + ((KB.course && KB.course.id) || ""); }
+function kbCaptureScroll() {
+  const el = kbListScrollEl(); if (el) KB.scroll[kbScrollKey()] = el.scrollTop;
+}
+function kbRestoreScroll() {
+  const el = kbListScrollEl(); if (el) el.scrollTop = KB.scroll[kbScrollKey()] || 0;
+}
+function kbEmptyHTML() {
+  const err = KB.status === "error";
+  const syncing = KB.status === "syncing";
+  return `<div class="lg-head"><h2>课程</h2><button class="circle" data-kb="sync" aria-label="同步">${I.sync}</button></div>
+    <div class="kb-empty">
+      <div class="kb-empty-icon">${I.kb}</div>
+      <div class="kb-empty-t">${syncing ? "正在同步课程" : err ? "离线，还没有缓存" : "还没有课程"}</div>
+      <button class="pill primary kb-empty-btn" data-kb="sync" ${syncing ? "disabled" : ""}>${syncing ? "同步中…" : "同步"}</button>
+    </div>`;
+}
+function kbCourseCard(c) {
+  const [done, total] = kbCourseProgress(c);
+  const pct = total ? Math.round(done / total * 100) : 0;
+  return `<button class="kb-course" data-kb-course="${esc(c.id)}">
+    <span class="kb-ic">${c.icon ? esc(c.icon) : I.kb}</span>
+    <span class="kb-cinfo"><span class="kb-ct">${esc(c.title)}</span>
+      <span class="kb-cmeta">${total} 篇 · 已读 ${done}/${total}</span>
+      <span class="bar bar-s"><i style="width:${Math.max(2, pct)}%"></i></span></span>
+    <span class="kb-chev">${I.chev}</span></button>`;
+}
+function kbContinueHTML(x) {
+  const pct = kbPct(x.a);
+  return `<button class="kb-cont" data-kb-open="${esc(x.c.id)}/${esc(x.a.id)}">
+    <span class="kb-cont-k">继续阅读</span>
+    <span class="kb-cont-t">${esc(x.a.title)}</span>
+    <span class="kb-cont-c">${esc(x.c.title)}${pct ? ` · ${pct}%` : ""}</span>
+    <span class="bar bar-s"><i style="width:${Math.max(3, pct)}%"></i></span></button>`;
+}
+function kbCoursesHTML() {
+  if (!kbCourses().length) return kbEmptyHTML();
+  const last = kbLastRead();
+  const cards = kbCourses().slice().sort((a, b) => (a.order || 0) - (b.order || 0)).map(kbCourseCard).join("");
+  return `<div class="lg-head"><h2>课程</h2><button class="circle" data-kb="sync" aria-label="同步">${I.sync}</button></div>
+    ${kbStatusBar()}
+    ${last ? kbContinueHTML(last) : ""}
+    <div class="sec-t">全部课程</div>
+    <div class="kb-courses">${cards}</div>`;
+}
+function kbArticleRow(a, active) {
+  const pct = kbPct(a), seen = kbIsSeen(a), fresh = kbIsNew(a);
+  return `<li class="${active ? "on" : ""}"><button data-kb-art="${esc(a.id)}">
+    <span class="kb-art-t">${esc(a.title)}${fresh ? '<span class="kb-new">新</span>' : ""}</span>
+    <span class="kb-art-m">${kbReadMin(a)} 分钟${seen ? " · 已读" : ""}</span>
+    ${pct ? `<span class="bar bar-s"><i style="width:${pct}%"></i></span>` : ""}
+  </button></li>`;
+}
+function kbListHTML() {
+  const c = KB.course;
+  if (!c) return kbEmptyHTML();
+  const active = KB.article && KB.article.a ? KB.article.a.id : "";
+  const rows = kbArticles(c).map(a => kbArticleRow(a, active === a.id)).join("");
+  const head = `<div class="kb-head"><button class="back" data-kb="courses">${I.chev}课程</button></div>
+    <div class="lg-head"><h2>${esc(c.title)}</h2><span class="kb-count">${kbArticles(c).length} 篇</span></div>
+    ${kbStatusBar()}`;
+  if (st.screen === "inner") {
+    const pane = KB.view === "read"
+      ? `<div class="kb-pane" data-theme="${esc(st.theme)}"><div class="kb-pane-bar"><button class="txt-btn" data-kb="toc">目录</button><button class="txt-btn" data-kb="themes">主题与字号</button><button class="txt-btn" data-kb="focus">专注</button></div><div class="kb-scroll"></div></div>`
+      : `<div class="kb-pane"><div class="kb-pane-empty">选一篇文章开始读</div></div>`;
+    return `<div class="kb-split"><div class="kb-col">${head}<ul class="list kb-rows">${rows}</ul></div>${pane}</div>`;
+  }
+  return `${head}<ul class="list kb-rows">${rows}</ul>`;
+}
+
+/* ---------- 阅读 ---------- */
+function kbLayer() {
+  let layer = $("#kb-read");
+  if (!layer) {
+    layer = el("div", "kb-read"); layer.id = "kb-read";
+    layer.innerHTML = `<div class="kb-top">
+      <button class="circle" data-kb="back" aria-label="返回">${I.chev}</button>
+      <span class="kb-top-t"></span>
+      <button class="circle" data-kb="themes" aria-label="主题与字号">${I.aa}</button>
+      <button class="circle" data-kb="toc" aria-label="目录">${I.list}</button>
+    </div><div class="kb-prog"><i></i></div><div class="kb-scroll"></div>`;
+    scr.appendChild(layer);
+  }
+  layer.hidden = false;
+  layer.dataset.theme = st.theme;
+  const t = $(".kb-top-t", layer);
+  if (t) t.textContent = (KB.article && KB.article.a && KB.article.a.title) || "";
+  return layer;
+}
+function kbArticleHost() {
+  return st.screen === "inner" ? $("#v-kb .kb-pane .kb-scroll") : $("#kb-read .kb-scroll");
+}
+function kbDoc() { return kbArticleHost() ? $(".art-doc", kbArticleHost()) : null; }
+function kbEnterRead() {
+  if (R) return;
+  scr.classList.add("reading");
+  try { N.reading(true); } catch (e) { }
+  if (st.screen === "outer") { try { N.bars(false, true); } catch (e) { } }
+}
+function kbExitRead() {
+  if (R) return;
+  scr.classList.remove("reading");
+  try { N.reading(false); } catch (e) { }
+  if (st.screen === "outer") { try { N.bars(true, !darkUI()); } catch (e) { } }
+}
+function kbRenderArticle(force) {
+  const host = kbArticleHost(), pair = KB.article;
+  if (!host || !pair) return;
+  const { c, a } = pair;
+  const key = (st.screen === "inner" ? "i:" : "o:") + c.id + "/" + a.id + "/" + (a.updated || "");
+  if (!force && KB.mounted === key && $(".art-doc", host)) return;
+  KB.mounted = key;
+  host.innerHTML = `<div class="art" data-theme="${esc(st.theme)}" data-font="${esc(st.font)}" lang="zh-CN"><div class="art-doc"></div><div class="kb-loading"><span class="ring"></span></div></div>`;
+  const art = $(".art", host);
+  if (art) applyTypo(art);
+  kbBindScroll(host);
+  const url = `/kb/a/${encodeURIComponent(c.id)}/${encodeURIComponent(a.id)}.html`;
+  kbGetArticle(url).then(html => {
+    if (KB.mounted !== key) return;
+    const doc = $(".art-doc", host); if (!doc) return;
+    doc.innerHTML = html;
+    kbPrepArticle(doc);
+    kbMarkSeen(a);
+    kbRestoreArticle(host, a);
+    kbUpdateProg(host);
+  }).catch(err => {
+    const doc = $(".art-doc", host); if (!doc) return;
+    const msg = err && err.message ? err.message : "";
+    doc.innerHTML = `<div class="kb-err"><p>这篇还没下载好</p>${msg ? `<p class="note">${esc(msg)}</p>` : ""}<button class="pill primary" data-kb="retry-art">重试</button></div>`;
+  }).finally(() => { const l = $(".kb-loading", host); if (l) l.remove(); });
+}
+function kbGetArticle(url) {
+  if (!KB.fetched[url]) {
+    KB.fetched[url] = fetch(url).then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.text(); });
+    KB.fetched[url].catch(() => { delete KB.fetched[url]; });
+  }
+  return KB.fetched[url];
+}
+function kbPrepArticle(doc) {
+  $$("img", doc).forEach(img => {
+    img.decoding = "async";
+    if (!img.getAttribute("loading")) img.setAttribute("loading", "lazy");
+    img.addEventListener("error", () => img.classList.add("kb-img-missing"), { once: true });
+  });
+  $$(".kb-mm svg, figure svg", doc).forEach(s => {
+    let vb = (s.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
+    if ((vb.length < 4 || !(vb[2] > 0)) && s.getAttribute("width") && s.getAttribute("height")) {
+      const w = parseFloat(s.getAttribute("width")), h = parseFloat(s.getAttribute("height"));
+      if (w > 0 && h > 0) { s.setAttribute("viewBox", `0 0 ${w} ${h}`); vb = [0, 0, w, h]; }
+    }
+    s.removeAttribute("height");
+    // 宽流程图按 1:1 显示并让 figure 横向滚动，否则缩到屏宽后字太小
+    const fig = s.closest("figure");
+    if (vb.length >= 4 && vb[2] > 600) {
+      s.style.width = Math.round(vb[2]) + "px";
+      s.style.maxWidth = "none";
+      s.style.height = "auto";
+      if (fig) fig.classList.add("kb-mm-wide");
+    }
+  });
+}
+function kbRestoreArticle(host, a) {
+  const p = KB.prog[a.id];
+  KB.userScrolled = false;
+  if (!p || !p.y) return;
+  requestAnimationFrame(() => { if (!KB.userScrolled && host) host.scrollTop = p.y; });
+  $$("img", host).forEach(img => {
+    if (img.complete) return;
+    img.addEventListener("load", () => { if (!KB.userScrolled) host.scrollTop = p.y; }, { once: true });
+  });
+}
+function kbMarkSeen(a) {
+  if (!a) return;
+  const v = a.updated || "";
+  if (KB.seen[a.id] !== v) { KB.seen[a.id] = v; kbSave(); }
+}
+function kbBindScroll(host) {
+  if (!host || host.dataset.kbbound) return;
+  host.dataset.kbbound = "1";
+  let t = 0;
+  host.addEventListener("scroll", () => {
+    KB.userScrolled = true;
+    kbUpdateProg(host);
+    clearTimeout(t); t = setTimeout(() => kbSaveArticle(host), 400);
+  }, { passive: true });
+}
+function kbSaveArticle(host) {
+  const a = KB.article && KB.article.a;
+  if (!a || !host) return;
+  const max = Math.max(0, host.scrollHeight - host.clientHeight);
+  const pct = max > 0 ? Math.min(1, host.scrollTop / max) : 0;
+  KB.prog[a.id] = { y: Math.round(host.scrollTop), pct: +pct.toFixed(4), at: Date.now() };
+  kbSave();
+}
+function kbUpdateProg(host) {
+  const bar = $("#kb-read .kb-prog i");
+  if (!bar || !host) return;
+  const max = Math.max(0, host.scrollHeight - host.clientHeight);
+  bar.style.width = Math.round((max > 0 ? host.scrollTop / max : 0) * 100) + "%";
+}
+function kbOpenToc() {
+  const doc = kbDoc();
+  if (!doc) return;
+  const items = $$("h2[id], h3[id]", doc).map(h => ({ id: h.id, t: h.textContent.trim(), l3: h.tagName === "H3" }));
+  if (!items.length) { toast("这篇没有小节标题"); return; }
+  openSheet(`<div class="sh-head"><h3>目录</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
+    <div class="sh-body flush"><ul class="list kb-toc">${items.map(h => `<li class="${h.l3 ? "kb-toc-3" : ""}"><button data-kb-go="${esc(h.id)}"><span class="lw">${esc(h.t)}</span></button></li>`).join("")}</ul></div>`);
+}
+function kbZoom(src) {
+  let z = $("#kb-zoom");
+  if (!z) { z = el("div", "kb-zoom"); z.id = "kb-zoom"; z.innerHTML = `<img alt="">`; scr.appendChild(z); }
+  $("img", z).src = src;
+  z.classList.add("on");
+}
+function kbOpenArticle(articleId) {
+  const x = kbFind(articleId);
+  if (!x) { toast("没有这篇文章"); return; }
+  if (KB.view === "read") kbSaveArticle(kbArticleHost());
+  KB.course = x.c; KB.article = x; KB.view = "read"; KB.mounted = ""; KB.userScrolled = false;
+  renderKb();
+}
+function kbOpenCourse(courseId) {
+  const c = kbCourseById(courseId);
+  if (!c) return;
+  if (KB.view === "read") kbSaveArticle(kbArticleHost());
+  KB.course = c; KB.article = null; KB.view = "list"; KB.mounted = "";
+  KB.scroll["list:" + c.id] = 0;
+  kbExitRead();
+  document.documentElement.classList.remove("kb-focus");
+  const layer = $("#kb-read"); if (layer) layer.hidden = true;
+  renderKb();
+}
+function kbLeaveRead() {
+  if (KB.view === "read") kbSaveArticle(kbArticleHost());
+  KB.view = KB.course ? "list" : "courses";
+  KB.article = null; KB.mounted = "";
+  kbExitRead();
+  document.documentElement.classList.remove("kb-focus");
+  const layer = $("#kb-read"); if (layer) layer.hidden = true;
+}
+function kbBack() {
+  if (KB.view === "read") { kbLeaveRead(); renderKb(); return; }
+  if (KB.view === "list") { KB.view = "courses"; KB.course = null; renderKb(); return; }
+  setTab("physical");
+}
+function renderKb() {
+  const v = $("#v-kb"); if (!v) return;
+  kbCaptureScroll();
+  if (!KB.index) kbLoadIndex();
+  if (!KB.index || !KB.index.courses || !KB.index.courses.length) {
+    v.innerHTML = kbEmptyHTML();
+    if (!KB.autoTried && kbNeedsSync()) { KB.autoTried = true; kbSync(false); }
+    return;
+  }
+  if (KB.view === "read" && st.screen === "outer") kbLayer();
+  else { const layer = $("#kb-read"); if (layer) layer.hidden = true; }
+  if (KB.view === "courses") v.innerHTML = kbCoursesHTML();
+  else v.innerHTML = kbListHTML();
+  if (KB.view === "read") { kbEnterRead(); kbRenderArticle(); }
+  else kbExitRead();
+  kbRestoreScroll();
+  if (KB.view === "courses" && !KB.autoTried && kbNeedsSync()) { KB.autoTried = true; kbSync(false); }
+}
+
+/* ---------- 课程页事件 ---------- */
+scr.addEventListener("click", e => {
+  const zoom = e.target.closest("#kb-zoom");
+  if (zoom) { zoom.classList.remove("on"); return; }
+  const kbBtn = e.target.closest("[data-kb]");
+  if (kbBtn) {
+    const act = kbBtn.dataset.kb;
+    if (act === "back") kbBack();
+    else if (act === "courses") { kbLeaveRead(); KB.view = "courses"; KB.course = null; renderKb(); }
+    else if (act === "sync") kbSync(true);
+    else if (act === "themes") openThemes(true);
+    else if (act === "toc") kbOpenToc();
+    else if (act === "retry-art") kbRenderArticle(true);
+    else if (act === "focus") document.documentElement.classList.toggle("kb-focus");
+    return;
+  }
+  const course = e.target.closest("[data-kb-course]");
+  if (course) { kbOpenCourse(course.dataset.kbCourse); return; }
+  const open = e.target.closest("[data-kb-open]");
+  if (open) {
+    const [cid, aid] = open.dataset.kbOpen.split("/");
+    const c = kbCourseById(cid);
+    if (c) { KB.course = c; kbOpenArticle(aid); }
+    return;
+  }
+  const art = e.target.closest("[data-kb-art]");
+  if (art) { kbOpenArticle(art.dataset.kbArt); return; }
+  const link = e.target.closest(".kb-art a[data-kb-article], .kb-art a[href]");
+  if (link && KB.view === "read") {
+    e.preventDefault();
+    const id = link.getAttribute("data-kb-article");
+    if (id) { kbOpenArticle(id); return; }
+    const href = link.getAttribute("href") || "";
+    if (/^https?:/i.test(href)) { try { N.openExternal(href); } catch (err) { } }
+    return;
+  }
+  const img = e.target.closest(".art-doc img");
+  if (img && KB.view === "read" && img.classList.contains("kb-img-missing") === false) {
+    kbZoom(img.currentSrc || img.src);
+  }
+});
+sheet.addEventListener("click", e => {
+  const go = e.target.closest("[data-kb-go]");
+  if (!go) return;
+  closeSheet();
+  const doc = kbDoc(), host = kbArticleHost();
+  if (!doc || !host) return;
+  const target = doc.querySelector("#" + CSS.escape(go.dataset.kbGo));
+  if (!target) return;
+  const top = target.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop - 8;
+  host.scrollTo({ top: Math.max(0, top), behavior: reduced ? "auto" : "smooth" });
+});
 
 /* ===================== 查单词 ===================== */
 function lookupHome() { return !st.query.trim() && !(st.screen === "inner" && st.pick); }
@@ -1730,20 +2148,63 @@ function openBookWords() {
     <div class="sh-body flush">${ws.length ? `<ul class="list">${ws.map(([w, m]) => `<li><button data-go-ch="${m.pos ? m.pos.ch : ""}" data-off="${m.pos ? m.pos.off : ""}"><span class="lw">${esc(w)}</span><span class="lm">${esc(m.sense || senseOf(w))}</span></button></li>`).join("")}</ul>` : '<div class="empty">长按书里的单词，加入生词本后会出现在这里</div>'}</div>`);
 }
 const THEMES = [["original", "原色", "#fcfcfd", "#1c2024"], ["quiet", "安静", "#212225", "#b0b4ba"], ["paper", "纸张", "#f9f9f8", "#21201c"], ["bold", "粗体", "#fcfcfd", "#1c2024"], ["calm", "平静", "#f2f0e7", "#3b352b"], ["focus", "专注", "#111110", "#ffe7b3"]];
-function openThemes() {
+/* 阅读设置：书（R）和课程文章（.art）共用一套状态；有书时同步分页，没有书时只改 CSS 变量 */
+function readerSurface() { return R ? R.r : $(".art"); }
+function setReaderTheme(k) {
+  const wasBold = st.theme === "bold";
+  st.theme = k; saveReaderPrefs();
+  const surface = readerSurface(); if (surface) surface.dataset.theme = k;
+  $$(".kb-read, .kb-pane").forEach(n => { n.dataset.theme = k; });
+  if (R && wasBold !== (st.theme === "bold")) { relayout(); invalidatePages(); }
+}
+function stepReaderSize(d) {
+  st.size = Math.max(14, Math.min(26, st.size + d)); saveReaderPrefs();
+  const surface = readerSurface(); if (surface) applyTypo(surface);
+  if (R) { const a = anchorOffset(); layout(a); invalidatePages(); }
+}
+async function setReaderPref(k, v) {
+  st[k] = v; saveReaderPrefs();
+  const surface = readerSurface();
+  if (k === "font") {
+    if (surface) surface.dataset.font = st.font;
+    await document.fonts.ready;
+    if (R) { const a = anchorOffset(); layout(a); invalidatePages(); }
+  }
+  if (k === "lh" || k === "margin") {
+    if (surface) applyTypo(surface);
+    if (R) { const a = anchorOffset(); layout(a); invalidatePages(); }
+  }
+  if (k === "turn" && R) demoTurn();
+}
+async function toggleReaderFlag(k, btn) {
+  st[k] = !st[k]; saveReaderPrefs(); btn.setAttribute("aria-checked", st[k]);
+  const surface = readerSurface(); if (surface) applyTypo(surface);
+  if (!R) return;
+  const a = anchorOffset();
+  if (k === "pub") { chCache.clear(); dropBookCss(); R.r.dataset.dropcap = ""; await loadChapter(R.ch, { off: a }); }
+  else layout(a);
+  invalidatePages();
+}
+function toggleSpread(btn) {
+  if (!R) return;
+  st.spread = !st.spread; saveReaderPrefs(); btn.setAttribute("aria-checked", st.spread);
+  relayout(); invalidatePages();
+}
+function openThemes(forArt = false) {
   const seg = (key, opts) => `<span class="mini">${opts.map(([v, t]) => `<button data-set="${key}" data-v="${v}" aria-pressed="${st[key] === v}">${t}</button>`).join("")}</span>`;
-  openSheet(`<div class="sh-head"><h3>主题与设置</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
+  const fontOpts = forArt ? [["literata", "Literata"], ["source", "Source Serif"], ["sans", "系统"]] : [["literata", "Literata"], ["source", "Source Serif"], ["sans", "无衬线"]];
+  openSheet(`<div class="sh-head"><h3>${forArt ? "主题与字号" : "主题与设置"}</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
     <div class="sh-body">
       <div class="size-row"><div class="seg2"><button data-size="-1" aria-label="缩小字号" style="font-size:14px">A</button><button data-size="1" aria-label="放大字号" style="font-size:28px">A</button></div></div>
       <div class="themes">${THEMES.map(([k, n, bg, fg]) => `<button class="th" data-th="${k}" aria-pressed="${st.theme === k}" style="--tb:${bg};--tf:${fg}"><span class="aa" style="${k === "bold" ? "font-weight:700" : ""}">Aa</span><span class="nm">${n}</span></button>`).join("")}</div>
       <div class="opts">
-        <div class="opt"><span>字体</span>${seg("font", [["literata", "Literata"], ["source", "Source Serif"], ["sans", "无衬线"]])}</div>
+        <div class="opt"><span>字体</span>${seg("font", fontOpts)}</div>
         <div class="opt"><span>行距</span>${seg("lh", [["s", "紧凑"], ["m", "适中"], ["l", "宽松"]])}</div>
-        <div class="opt"><span>页边距</span>${seg("margin", [["s", "窄"], ["m", "中"], ["l", "宽"]])}</div>
         <div class="opt"><span>两端对齐</span><button class="switch" role="switch" data-sw="justify" aria-checked="${st.justify}" aria-label="两端对齐"></button></div>
+        ${forArt ? "" : `<div class="opt"><span>页边距</span>${seg("margin", [["s", "窄"], ["m", "中"], ["l", "宽"]])}</div>
         <div class="opt"><span>原书排版</span><button class="switch" role="switch" data-sw="pub" aria-checked="${st.pub}" aria-label="原书排版"></button></div>
         <div class="opt"><span>翻页</span>${seg("turn", [["curl", "仿真"], ["slide", "滑动"], ["fade", "淡入"], ["none", "无"]])}</div>
-        ${spreadAvailable() ? `<div class="opt"><span>双页</span><button class="switch" role="switch" data-spread aria-checked="${st.spread}" aria-label="双页"></button></div>` : ""}
+        ${spreadAvailable() ? `<div class="opt"><span>双页</span><button class="switch" role="switch" data-spread aria-checked="${st.spread}" aria-label="双页"></button></div>` : ""}`}
       </div>
     </div>`);
 }
@@ -1831,6 +2292,24 @@ sheet.addEventListener("click", async e => {
     return;
   }
   const fw = e.target.closest("[data-fw]"); if (fw) { if (st.kb) N.keyboard(false); $("#fbody").innerHTML = `<div style="padding:4px 20px 0">${wordHTML(lookupWord(fw.dataset.fw), {})}</div>`; return; }
+  const th = e.target.closest("[data-th]");
+  if (th) {
+    setReaderTheme(th.dataset.th);
+    $$("[data-th]", sheet).forEach(b => b.setAttribute("aria-pressed", b === th));
+    return;
+  }
+  const sz = e.target.closest("[data-size]");
+  if (sz) { stepReaderSize(+sz.dataset.size); return; }
+  const set = e.target.closest("[data-set]");
+  if (set) {
+    await setReaderPref(set.dataset.set, set.dataset.v);
+    $$(`[data-set="${set.dataset.set}"]`, sheet).forEach(b => b.setAttribute("aria-pressed", b === set));
+    return;
+  }
+  const sw = e.target.closest("[data-sw]");
+  if (sw) { await toggleReaderFlag(sw.dataset.sw, sw); return; }
+  const sp = e.target.closest("[data-spread]");
+  if (sp) { toggleSpread(sp); return; }
   if (!R) return;
   const go = e.target.closest("[data-go-ch]");
   if (go && go.dataset.goCh !== "") {
@@ -1840,36 +2319,6 @@ sheet.addEventListener("click", async e => {
     else await loadChapter(ch, frag ? { frag } : { page: 0 });
     return;
   }
-  const th = e.target.closest("[data-th]");
-  if (th) {
-    const wasBold = st.theme === "bold"; st.theme = th.dataset.th; R.r.dataset.theme = st.theme; saveReaderPrefs();
-    $$("[data-th]", sheet).forEach(b => b.setAttribute("aria-pressed", b === th));
-    if (wasBold !== (st.theme === "bold")) { relayout(); invalidatePages(); }
-    return;
-  }
-  const sz = e.target.closest("[data-size]");
-  if (sz) {
-    const a = anchorOffset(); st.size = Math.max(14, Math.min(26, st.size + +sz.dataset.size)); saveReaderPrefs();
-    R.r.style.setProperty("--r-size", st.size + "px"); layout(a); invalidatePages(); return;
-  }
-  const set = e.target.closest("[data-set]");
-  if (set) {
-    st[set.dataset.set] = set.dataset.v; saveReaderPrefs();
-    $$(`[data-set="${set.dataset.set}"]`, sheet).forEach(b => b.setAttribute("aria-pressed", b === set));
-    if (set.dataset.set === "font") { const a = anchorOffset(); R.r.dataset.font = st.font; await document.fonts.ready; layout(a); invalidatePages(); }
-    if (set.dataset.set === "turn") demoTurn();
-    if (set.dataset.set === "lh" || set.dataset.set === "margin") { const a = anchorOffset(); applyTypo(R.r); layout(a); invalidatePages(); }
-    return;
-  }
-  const sw = e.target.closest("[data-sw]");
-  if (sw) {
-    const k = sw.dataset.sw; st[k] = !st[k]; saveReaderPrefs(); sw.setAttribute("aria-checked", st[k]);
-    const a = anchorOffset(); applyTypo(R.r);
-    if (k === "pub") { chCache.clear(); dropBookCss(); R.r.dataset.dropcap = ""; await loadChapter(R.ch, { off: a }); } else layout(a);
-    invalidatePages(); return;
-  }
-  const sp = e.target.closest("[data-spread]");
-  if (sp) { st.spread = !st.spread; saveReaderPrefs(); sp.setAttribute("aria-checked", st.spread); relayout(); invalidatePages(); }
 });
 async function demoTurn() { // 选了翻页方式后，在书页上演示一次
   if (st.turn === "none" || !R) return;
@@ -2033,6 +2482,7 @@ window.onBack = () => {
     if (R.menu.classList.contains("on")) { R.menu.classList.remove("on"); return true; }
     closeBook(); return true;
   }
+  if (st.tab === "kb" && (KB.view === "read" || KB.view === "list")) { kbBack(); return true; }
   if (st.tab === "physical" && (st.query || st.pick)) { clearQuery(); return true; }
   if (st.tab !== "physical") { setTab("physical"); return true; }
   return false;

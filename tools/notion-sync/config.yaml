@@ -1,0 +1,84 @@
+# 书边译「课程」板块同步配置
+# 课程 hub page id 固定；新增课程只改这里。secret / token / 远端路径走环境变量，不进本文件。
+
+notion:
+  api_base: "https://api.notion.com"
+  version: "2026-03-11"
+  max_rps: 3            # 官方非 Business 限额约 180 请求/分钟 = 3 req/s
+  page_size: 100
+  timeout: 30
+
+courses:
+  - id: cs2680
+    hub: "4107d604-ab11-81ce-8f18-e26217473bcf"
+    title: "CS2680 · 现代 AI 系统"
+    icon: "🎓"
+    order: 1
+  - id: berkeley
+    hub: "4117d604-ab11-8133-8aee-f56a6d2b232a"
+    title: "Berkeley Advanced LLM Agents · 进阶智能体"
+    icon: "🧠"
+    order: 2
+  - id: quant-trading
+    hub: "4107d604-ab11-8105-a872-fc84dd754a8a"
+    title: "量化交易知识库"
+    icon: "📈"
+    order: 3
+    # 量化库 F 分区页：本身不是文章，展开它的子页（F1–F3）
+    sections:
+      - "4117d604-ab11-816f-ad0c-d5713397e420"
+  - id: arch-design
+    hub: "4117d604-ab11-8123-b876-eb03f206b90f"
+    title: "架构与设计 · 中高级知识地图"
+    icon: "🏛"
+    order: 4
+
+# 文章过滤（R11/R12/R13 + 用户口径：作业/毕业项目/模板不进课程板块）
+filters:
+  exclude_title_patterns:
+    - {pattern: "待发布", reason: "待发布占位"}
+    - {pattern: "待补充", reason: "待补充占位"}
+    - {pattern: "待写", reason: "待写占位"}
+    - {pattern: "^作业", reason: "作业页"}
+    - {pattern: "毕业项目", reason: "毕业项目"}
+    - {pattern: "跨讲总纲", reason: "综合页"}
+    - {pattern: "自测题库", reason: "综合页"}
+    - {pattern: "实验、作业与项目路线", reason: "综合页"}
+    - {pattern: "模板$", reason: "模板页"}
+    - {pattern: "方案评审 10 问", reason: "模板页"}
+  exclude_icons: ["⏳"]          # 只在正文 < pending_body_chars 时按 ⏳ 排除（长文不误伤）
+  pending_body_chars: 1200       # icon ⏳ / 正文含占位标记时的长文豁免阈值
+  pending_markers: ["待发布", "待补充", "待写", "状态：⏳"]
+  min_body_chars: 200            # 清洗后正文少于这个字符数视为占位页
+
+# 正文清洗（R2/R3/R17/R19/R20）
+clean:
+  drop_lead_para_prefixes: ["导语｜", "导语|"]
+  byline_markers: ["授课：", "中文讲解文章", "｜授课", "——"]
+  drop_status_headings: ["状态", "状态更新", "更新状态"]
+  drop_tail_patterns:
+    - "^第\\s*[一二三四五六七八九十百零0-9]+\\s*讲\\s*完[。.]?$"
+  drop_table_of_contents: true
+
+output:
+  dist: "dist"
+  state: "state/state.json"
+  last_run: "state/last-run.json"
+  keep_releases: 3
+  media_max_edge: 1600
+  media_quality: 82
+
+mermaid:
+  # Fusion Pixel 是 12px 点阵字体；24 = 2 倍整数倍，SVG 缩到手机宽度时接近整数缩放，比默认 16 清晰
+  font_size: 24
+  theme: "default"
+  chrome: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  font: "../../app/src/main/assets/web/fonts/fusion-pixel.woff2"
+  max_parallel: 4
+
+publish:
+  enabled: true                  # 2026-11-07 部署后启用；--publish 且 REMOTE_DIR 齐全才 rsync
+  host: "ubuntu@43.131.233.151"
+  host_env: "REMOTE"             # ~/.config/shubian-kb/env 里可覆盖 ssh 目标
+  remote_dir_env: "REMOTE_DIR"   # 含 secret 的远端目录（/var/www/shubian-kb/<secret>）
+  keep_remote_releases: 3

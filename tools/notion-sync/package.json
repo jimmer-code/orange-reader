@@ -1,0 +1,14 @@
+{
+  "name": "shubian-notion-sync-mermaid",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Mermaid 批量预渲染（puppeteer-core + 本机 Chrome），供 sync.py 调用",
+  "type": "module",
+  "scripts": {
+    "render": "node render_mermaid.mjs"
+  },
+  "dependencies": {
+    "mermaid": "^11.17.2",
+    "puppeteer-core": "^25.16.0"
+  }
+}

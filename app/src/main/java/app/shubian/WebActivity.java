@@ -71,6 +71,7 @@ public abstract class WebActivity extends Activity {
     private final Map<String, ZipFile> zips = new HashMap<>();
     private TextToSpeech tts;
     private volatile boolean ttsReady, ttsFailed, reading;
+    private volatile boolean dead;
     private volatile String ttsPending;
     private boolean pageReady;
     private String insetsJs;
@@ -147,6 +148,7 @@ public abstract class WebActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        dead = true;
         if (tts != null) tts.shutdown();
         for (ZipFile z : zips.values()) try { z.close(); } catch (Exception ignored) { }
         web.destroy();
@@ -168,6 +170,7 @@ public abstract class WebActivity extends Activity {
 
     /** Calls window.onNative(type, data) in the page; data is a JSON value. */
     void emit(String type, Object json) {
+        if (dead) return;
         String js = "window.onNative&&onNative(" + JSONObject.quote(type) + "," + json + ")";
         main.post(() -> web.evaluateJavascript(js, null));
     }
@@ -201,13 +204,20 @@ public abstract class WebActivity extends Activity {
                 in = new FileInputStream(new File(Epub.coverDir(this), new File(path).getName()));
             } else if (path.startsWith("/scan/")) {
                 in = new FileInputStream(new File(Scan.dir(this), new File(path).getName()));
+            } else if (path.startsWith("/kb/")) {
+                // 课程缓存（filesDir/kb）：文章 HTML 与图片，路径必须落在缓存目录内
+                File base = Kb.dir(this);
+                File f = new File(base, path.substring(4));
+                if (!Kb.under(base, f)) return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found", null, null);
+                in = new FileInputStream(f);
             } else {
                 in = getAssets().open("web" + (path.equals("/") ? "/index.html" : path));
             }
             WebResourceResponse r = new WebResourceResponse(mime(path), "utf-8", in);
             Map<String, String> h = new HashMap<>();
             h.put("Access-Control-Allow-Origin", "*");
-            h.put("Cache-Control", path.startsWith("/scan/") ? "no-store" : "max-age=31536000");
+            // /kb/ 是同步后会立刻变化的课程缓存，不能沿用 assets 的一年缓存
+            h.put("Cache-Control", path.startsWith("/scan/") || path.startsWith("/kb/") ? "no-store" : "max-age=31536000");
             r.setResponseHeaders(h);
             return r;
         } catch (Exception e) {
@@ -492,6 +502,36 @@ public abstract class WebActivity extends Activity {
             } catch (Exception e) {
                 return "";
             }
+        }
+
+        // ---------- 课程（Notion 知识库内容包） ----------
+
+        /** 本地 index.json 原文；没有缓存时 ""。首次进课程标签调一次。 */
+        @JavascriptInterface public String kbIndex() { return Kb.get(WebActivity.this).index(); }
+
+        /** 后台增量同步（knownRelease 空串=全量）；进度走 emit("kb", {state,done,total,bytes,release,msg})。 */
+        @JavascriptInterface public void kbSync(String knownRelease) {
+            Kb.get(WebActivity.this).sync(knownRelease, WebActivity.this::emit);
+        }
+
+        /** {release, fmt, articles, images, bytes, at}。 */
+        @JavascriptInterface public String kbStats() { return Kb.get(WebActivity.this).stats().toString(); }
+
+        @JavascriptInterface public void kbCancel() { Kb.get(WebActivity.this).cancel(); }
+
+        /** 只删课程缓存；阅读进度在 kv 里，不受影响。 */
+        @JavascriptInterface public void kbClear() { Kb.get(WebActivity.this).clear(); }
+
+        /** 文章外链交给系统浏览器（shouldOverrideUrlLoading 恒 true，页面里点不开）；只放行 http/https。 */
+        @JavascriptInterface public void openExternal(String url) {
+            if (url == null) return;
+            Uri u = Uri.parse(url.trim());
+            String scheme = u.getScheme();
+            if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) return;
+            main.post(() -> {
+                try { startActivity(new Intent(Intent.ACTION_VIEW, u)); }
+                catch (Exception e) { emit("toast", JSONObject.quote("打不开这个链接")); }
+            });
         }
 
         @JavascriptInterface public String clip() {
