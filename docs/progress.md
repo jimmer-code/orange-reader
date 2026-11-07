@@ -278,3 +278,10 @@
 - 旋转/折叠：滚动位置按比例恢复（实测横→竖 0.4806→0.4800、竖→横 0.4800→0.4800，Δ<0.1%）；文章不重挂。
 - 模拟器实测（截图 `sandbox/tasks/shubian-notion-kb/inner-ui-emulator/`）：860×608 横屏、608×860 竖屏、沉浸隐藏系统栏、点正文返回顶栏、返回键先退全屏再退文章、TOC/主题面板在沉浸下可用、外屏无回归、长文（量化 B3，35,981px）表格/13 张 mermaid 正常。
 - 验证：`node --check`、`gradlew clean testDebugUnitTest lintDebug assembleRelease` 通过；release APK 1.24/25。
+
+### M26 追加二：Mermaid 阅读体验（1.25/26）
+- 文内 mermaid 不再横向滚动：去掉「宽图 1:1 + kb-mm-wide 横滚」，统一自适应内容宽度；高图 max-height 68vh 居中；每图右上角「查看大图」角标。
+- 新增统一媒体查看器 `#kb-viewer`（替换旧图片放大层），mermaid 和图片共用：深色底、顶部图注+关闭、底部 −/百分比/＋/整图/旋转；初始缩放规则：`fitW>=0.55` 适应宽度，否则原生 100%（窄屏打开直接看细节）；「整图」=contain；双击整图↔200%；双指捏合 1–5x（中点锚点）、单指拖动、滚轮；旋转 90° 重适应；X/点空白/返回键关闭；沉浸状态不闪。
+- 兼容：外屏/内屏横竖屏、沉浸、返回链（查看器→sheet→全屏→文章→列表）；图片查看器同步升级。
+- 模拟器实测（截图 `sandbox/tasks/shubian-notion-kb/mermaid-ui-emulator/`）：内屏 860×608 打开 836px 宽、竖屏 608 原生 100%、外屏 425 打开原生 100% 可拖、整图 contain、旋转 90°、返回位置 944→944；长文 13 张 mermaid 正常。
+- 验证：`node --check`、`gradlew clean testDebugUnitTest lintDebug assembleRelease` 通过；release APK 1.25/26。

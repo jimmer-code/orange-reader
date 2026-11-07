@@ -661,9 +661,11 @@ textarea.field { height: auto; min-height: 96px; padding: 10px 14px; line-height
 .art-doc figure { margin: 1.3em 0; }
 .art-doc figure img { display: block; width: 100%; height: auto; border: 1px solid color-mix(in srgb, var(--r-fg) 14%, transparent); background: var(--r-chip); }
 .art-doc figcaption { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--r-muted); text-align: center; }
-.art-doc .kb-mm svg, .art-doc figure svg { display: block; width: 100%; height: auto; max-width: 100%; }
-.art-doc figure.kb-mm-wide { overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; touch-action: pan-x pan-y; padding-bottom: 4px; }
-.art-doc figure.kb-mm-wide svg { max-width: none; height: auto; }
+.art-doc .kb-mm svg, .art-doc figure svg { display: block; width: 100%; height: auto; max-width: 100%; max-height: 68vh; margin: 0 auto; }
+.art-doc figure.kb-mm { position: relative; }
+.art-doc figure.kb-mm svg { cursor: zoom-in; }
+.art-doc .kb-mm-badge { position: absolute; top: 6px; right: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; font-size: 12px; line-height: 1; color: var(--r-fg); background: color-mix(in srgb, var(--r-bg) 86%, transparent); border: 1px solid color-mix(in srgb, var(--r-fg) 22%, transparent); pointer-events: none; }
+.art-doc .kb-mm-badge svg { width: 13px; height: 13px; }
 .art-doc .kb-tw { margin: 1em 0; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid color-mix(in srgb, var(--r-fg) 14%, transparent); }
 .art-doc table { width: 100%; border-collapse: collapse; font-size: .9em; }
 .art-doc :is(th, td) { padding: 7px 10px; border-bottom: 1px solid color-mix(in srgb, var(--r-fg) 12%, transparent); text-align: left; vertical-align: top; }
@@ -671,8 +673,23 @@ textarea.field { height: auto; min-height: 96px; padding: 10px 14px; line-height
 .art-doc img.kb-img-missing { min-height: 90px; background: repeating-linear-gradient(45deg, var(--r-chip) 0 8px, transparent 8px 16px); }
 .kb-err { padding: 40px 4px; text-align: center; color: var(--r-muted); }
 .kb-err .pill { margin: 16px auto 0; }
-.kb-zoom { position: absolute; inset: 0; z-index: 90; display: none; align-items: center; justify-content: center; background: #000000e6; padding: 16px; }
-.kb-zoom.on { display: flex; }
-.kb-zoom img { max-width: 100%; max-height: 100%; object-fit: contain; }
+/* ---------- 全屏查看器（图片 / mermaid 共用） ---------- */
+.kb-viewer { position: absolute; inset: 0; z-index: 92; display: none; flex-direction: column; background: #0b0b0d; color: #f2f2f2; touch-action: none; user-select: none; -webkit-user-select: none; }
+.kb-viewer.on { display: flex; }
+.kbv-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; padding: 56px 14px 78px; box-sizing: border-box; }
+.kbv-frame { will-change: transform; }
+.kbv-media { display: block; transform-origin: center center; will-change: transform; }
+.kbv-media img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.kbv-media svg { display: block; width: 100%; height: 100%; }
+.kbv-top { position: absolute; left: 0; right: 0; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: calc(var(--sat) + 8px) 14px 12px; pointer-events: none; background: linear-gradient(#0b0b0de6, #0b0b0d00); }
+.kbv-cap { flex: 1; min-width: 0; font-size: 12px; color: #b9b9bd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kbv-close { pointer-events: auto; width: 36px; height: 36px; flex: none; display: grid; place-items: center; background: #ffffff1f; color: #f2f2f2; }
+.kbv-close svg { width: 16px; height: 16px; }
+.kbv-bar { position: absolute; left: 50%; bottom: calc(16px + var(--sab)); transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 4px; background: #1b1b1fe6; border: 1px solid #ffffff26; z-index: 2; }
+.kbv-bar button { min-width: 46px; height: 38px; padding: 0 10px; color: #f2f2f2; font-size: 15px; display: grid; place-items: center; white-space: nowrap; flex: none; }
+.kbv-bar button:active { background: #ffffff1f; }
+.kbv-bar button svg { width: 18px; height: 18px; }
+.kbv-zoom { min-width: 50px; text-align: center; font-size: 12px; color: #b9b9bd; font-variant-numeric: tabular-nums; }
+.kbv-sep { width: 1px; height: 20px; background: #ffffff26; margin: 0 4px; }
 
 /* 课程页里的暗色：主题色来自 --r-*，列表沿用界面 token，无需额外覆盖 */

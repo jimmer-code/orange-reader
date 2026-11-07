@@ -69,6 +69,7 @@ const I = {
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>',
   aa: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18l5-12 5 12M4.8 14h6.4M15 18l3-7.5 3 7.5M15.9 16h4.2"/></svg>',
   expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5H3.5V9M15 3.5h5.5V9M9 20.5H3.5V15M15 20.5h5.5V15"/></svg>',
+  rotate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5a7.8 7.8 0 1 1 2.2 6.1"/><path d="M4.2 4.8v5.9h5.9"/></svg>',
   shrink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9H9V3.5M20.5 9H15V3.5M3.5 15H9v5.5M20.5 15H15v5.5"/></svg>',
   star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6-5-2.7-5 2.7.9-5.6-4-3.9 5.6-.8z"/></svg>',
   starOn: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6-5-2.7-5 2.7.9-5.6-4-3.9 5.6-.8z"/></svg>',
@@ -628,20 +629,29 @@ function kbPrepArticle(doc) {
     if (!img.getAttribute("loading")) img.setAttribute("loading", "lazy");
     img.addEventListener("error", () => img.classList.add("kb-img-missing"), { once: true });
   });
-  $$(".kb-mm svg, figure svg", doc).forEach(s => {
+  $$("figure svg, .kb-mm svg", doc).forEach(s => {
     let vb = (s.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(Number);
     if ((vb.length < 4 || !(vb[2] > 0)) && s.getAttribute("width") && s.getAttribute("height")) {
       const w = parseFloat(s.getAttribute("width")), h = parseFloat(s.getAttribute("height"));
       if (w > 0 && h > 0) { s.setAttribute("viewBox", `0 0 ${w} ${h}`); vb = [0, 0, w, h]; }
     }
+    s.removeAttribute("width");
     s.removeAttribute("height");
-    // 宽流程图按 1:1 显示并让 figure 横向滚动，否则缩到屏宽后字太小
+    s.style.width = "";
+    s.style.height = "";
+    s.style.maxWidth = "";
+    if (vb.length >= 4) {
+      s.setAttribute("viewBox", `0 0 ${vb[2]} ${vb[3]}`);
+      if (vb[3] / vb[2] > 1.6) s.style.maxWidth = `calc(68vh * ${(vb[2] / vb[3]).toFixed(4)})`;
+    }
+    // 文内统一自适应宽度（CSS width:100%，高图 max-height:68vh 兜底），不再横向滚动
     const fig = s.closest("figure");
-    if (vb.length >= 4 && vb[2] > 600) {
-      s.style.width = Math.round(vb[2]) + "px";
-      s.style.maxWidth = "none";
-      s.style.height = "auto";
-      if (fig) fig.classList.add("kb-mm-wide");
+    if (fig) {
+      fig.classList.add("kb-mm");
+      if (!$(".kb-mm-badge", fig)) {
+        const badge = el("span", "kb-mm-badge", `${I.expand}<span>查看大图</span>`);
+        fig.appendChild(badge);
+      }
     }
   });
 }
@@ -726,12 +736,202 @@ function kbOpenToc() {
   openSheet(`<div class="sh-head"><h3>目录</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
     <div class="sh-body flush"><ul class="list kb-toc">${items.map(h => `<li class="${h.l3 ? "kb-toc-3" : ""}"><button data-kb-go="${esc(h.id)}"><span class="lw">${esc(h.t)}</span></button></li>`).join("")}</ul></div>`);
 }
-function kbZoom(src) {
-  let z = $("#kb-zoom");
-  if (!z) { z = el("div", "kb-zoom"); z.id = "kb-zoom"; z.innerHTML = `<img alt="">`; scr.appendChild(z); }
-  $("img", z).src = src;
-  z.classList.add("on");
+/* ---------- 全屏查看器（图片 / mermaid 共用，替换旧 kb-zoom） ---------- */
+const KBV = {
+  open: false, kind: "", natW: 800, natH: 600, base: 1, z: 1, tx: 0, ty: 0, rot: 0,
+  fit: "width", pointers: new Map(), lastTap: 0, lastTapX: 0, lastTapY: 0, moved: false
+};
+function kbViewer() {
+  let v = $("#kb-viewer");
+  if (v) return v;
+  v = el("div", "kb-viewer"); v.id = "kb-viewer";
+  v.innerHTML = `<div class="kbv-stage"><div class="kbv-frame"><div class="kbv-media"></div></div></div>
+    <div class="kbv-top"><span class="kbv-cap"></span><button class="kbv-close" data-kbv="close" aria-label="关闭">${I.x}</button></div>
+    <div class="kbv-bar">
+      <button data-kbv="out" aria-label="缩小">−</button><span class="kbv-zoom">100%</span><button data-kbv="in" aria-label="放大">＋</button>
+      <span class="kbv-sep"></span><button data-kbv="fit">整图</button><button data-kbv="rot" aria-label="旋转">${I.rotate}</button>
+    </div>`;
+  scr.appendChild(v);
+  kbvBind(v);
+  return v;
 }
+function kbvMediaEl() { return $("#kb-viewer .kbv-media"); }
+function kbViewerOpen() { const v = $("#kb-viewer"); return !!(v && v.classList.contains("on")); }
+function kbCloseViewer() {
+  const v = $("#kb-viewer"); if (!v) return;
+  v.classList.remove("on");
+  KBV.open = false; KBV.pointers.clear(); KBV.moved = false;
+  const media = kbvMediaEl(); if (media) media.innerHTML = "";
+}
+function kbvCloseIfOpen() { if (KBV.open) kbCloseViewer(); }
+function kbvApply() {
+  const v = $("#kb-viewer"); if (!v) return;
+  const stage = $(".kbv-stage", v), frame = $(".kbv-frame", v), media = $(".kbv-media", v);
+  if (!stage || !frame || !media) return;
+  const sc = KBV.base * KBV.z;
+  const swap = KBV.rot % 180 !== 0;
+  const w = (swap ? KBV.natH : KBV.natW) * sc, h = (swap ? KBV.natW : KBV.natH) * sc;
+  const mx = Math.max(0, (w - stage.clientWidth) / 2) + 40;
+  const my = Math.max(0, (h - stage.clientHeight) / 2) + 40;
+  KBV.tx = Math.max(-mx, Math.min(mx, KBV.tx));
+  KBV.ty = Math.max(-my, Math.min(my, KBV.ty));
+  media.style.width = KBV.natW + "px";
+  media.style.height = KBV.natH + "px";
+  media.style.transform = `rotate(${KBV.rot}deg)`;
+  frame.style.transform = `translate(${KBV.tx}px, ${KBV.ty}px) scale(${sc})`;
+  const z = $(".kbv-zoom", v); if (z) z.textContent = Math.round(KBV.z * 100) + "%";
+}
+function kbvFit(mode) {
+  if (!KBV.open) return;
+  if (mode) KBV.fit = mode;
+  const stage = $("#kb-viewer .kbv-stage"); if (!stage) return;
+  const cs = getComputedStyle(stage);
+  const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  const sw = Math.max(80, stage.clientWidth - padX - 12), sh = Math.max(80, stage.clientHeight - padY - 8);
+  const swap = KBV.rot % 180 !== 0;
+  const ew = swap ? KBV.natH : KBV.natW, eh = swap ? KBV.natW : KBV.natH;
+  const contain = Math.min(sw / ew, sh / eh);
+  const fitW = sw / ew;
+  let base;
+  if (KBV.fit === "contain") base = contain;
+  else if (fitW >= 0.55) base = Math.min(fitW, 2.5);
+  else base = 1;   // 窄屏上「适应宽度」等于没放大：给原生尺寸，可拖动看细节
+  if (!isFinite(base) || base <= 0) base = contain;
+  KBV.base = base; KBV.z = 1; KBV.tx = 0; KBV.ty = 0;
+  kbvApply();
+}
+function kbvZoomAt(newZ, cx, cy) {
+  const stage = $("#kb-viewer .kbv-stage"); if (!stage) return;
+  newZ = Math.max(1, Math.min(5, newZ));
+  const r = stage.getBoundingClientRect();
+  const mx = cx - (r.left + r.width / 2), my = cy - (r.top + r.height / 2);
+  const s0 = KBV.base * KBV.z, s1 = KBV.base * newZ;
+  KBV.tx = mx - (mx - KBV.tx) / s0 * s1;
+  KBV.ty = my - (my - KBV.ty) / s0 * s1;
+  KBV.z = newZ;
+  kbvApply();
+}
+function kbvStep(dir) { kbvZoomAt(KBV.z + dir * 0.25, innerWidth / 2, innerHeight / 2); }
+function kbvDoubleTap() {
+  if (KBV.z > 1.02) { KBV.fit = "contain"; kbvFit("contain"); }
+  else { KBV.fit = "contain"; kbvFit("contain"); KBV.z = 2; kbvApply(); }
+}
+function kbvBind(v) {
+  const stage = $(".kbv-stage", v);
+  const ids = new Map();
+  let drag = null;
+  stage.addEventListener("pointerdown", e => {
+    if (!KBV.open) return;
+    ids.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // 不做 pointer capture：capture 会把后续 click 的 target 改成 stage，导致点图被误判成点空白
+    if (ids.size === 1) {
+      drag = { x: e.clientX, y: e.clientY, tx: KBV.tx, ty: KBV.ty, moved: false };
+      KBV.pinch = null;
+    } else if (ids.size === 2) {
+      const [a, b] = [...ids.values()];
+      KBV.pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: KBV.z };
+      drag = null; KBV.moved = true;
+    }
+  });
+  stage.addEventListener("pointermove", e => {
+    if (!KBV.open || !ids.has(e.pointerId)) return;
+    ids.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ids.size >= 2 && KBV.pinch) {
+      const [a, b] = [...ids.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      kbvZoomAt(KBV.pinch.z0 * (d / KBV.pinch.d0), (a.x + b.x) / 2, (a.y + b.y) / 2);
+      return;
+    }
+    if (drag) {
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) { drag.moved = true; KBV.moved = true; }
+      if (drag.moved) { KBV.tx = drag.tx + dx; KBV.ty = drag.ty + dy; kbvApply(); }
+    }
+  });
+  const up = e => {
+    ids.delete(e.pointerId);
+    if (ids.size === 0) {
+      const wasMoved = KBV.moved || (drag && drag.moved);
+      if (!wasMoved && drag) {
+        const now = Date.now();
+        if (now - KBV.lastTap < 320 && Math.abs(e.clientX - KBV.lastTapX) < 26 && Math.abs(e.clientY - KBV.lastTapY) < 26) {
+          KBV.lastTap = 0; kbvDoubleTap();
+        } else { KBV.lastTap = now; KBV.lastTapX = e.clientX; KBV.lastTapY = e.clientY; }
+      }
+      if (!wasMoved) KBV.moved = false;
+      drag = null; KBV.pinch = null;
+    } else if (ids.size === 1) {
+      const p = [...ids.values()][0];
+      drag = { x: p.x, y: p.y, tx: KBV.tx, ty: KBV.ty, moved: true };
+      KBV.pinch = null;
+    }
+  };
+  stage.addEventListener("pointerup", up);
+  stage.addEventListener("pointercancel", up);
+  stage.addEventListener("wheel", e => {
+    if (!KBV.open) return;
+    e.preventDefault();
+    kbvZoomAt(KBV.z * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+  }, { passive: false });
+  v.addEventListener("click", e => {
+    const btn = e.target.closest("[data-kbv]");
+    if (btn) {
+      const act = btn.dataset.kbv;
+      if (act === "close") kbCloseViewer();
+      else if (act === "in") kbvStep(1);
+      else if (act === "out") kbvStep(-1);
+      else if (act === "fit") kbvFit("contain");
+      else if (act === "rot") { KBV.rot = (KBV.rot + 90) % 360; kbvFit(KBV.fit === "contain" ? "contain" : "width"); }
+      return;
+    }
+    if (e.target.closest(".kbv-frame, .kbv-media")) return;
+    if (KBV.moved) { KBV.moved = false; return; }
+    kbCloseViewer();
+  });
+}
+function kbvNatural() {
+  const media = kbvMediaEl(); if (!media) return;
+  const svg = media.querySelector("svg"), img = media.querySelector("img");
+  if (svg) {
+    const vb = (svg.getAttribute("viewBox") || "").split(/[\s,]+/).map(Number);
+    KBV.natW = vb.length >= 4 ? vb[2] : (parseFloat(svg.getAttribute("width")) || 800);
+    KBV.natH = vb.length >= 4 ? vb[3] : (parseFloat(svg.getAttribute("height")) || 600);
+    svg.setAttribute("width", KBV.natW); svg.setAttribute("height", KBV.natH);
+    svg.style.width = "100%"; svg.style.height = "100%";
+  } else if (img) {
+    KBV.natW = img.naturalWidth || 800;
+    KBV.natH = img.naturalHeight || 600;
+  }
+}
+function kbOpenViewer(kind, payload, caption) {
+  const v = kbViewer(), media = kbvMediaEl();
+  if (!media) return;
+  media.innerHTML = ""; media.style.transform = "";
+  KBV.open = true; KBV.kind = kind; KBV.rot = 0; KBV.fit = "width"; KBV.z = 1; KBV.tx = 0; KBV.ty = 0;
+  KBV.pointers.clear(); KBV.moved = false; KBV.lastTap = 0;
+  if (kind === "svg" && payload) {
+    const clone = payload.cloneNode(true);
+    clone.removeAttribute("class"); clone.removeAttribute("style");
+    clone.setAttribute("width", "100%"); clone.setAttribute("height", "100%");
+    media.appendChild(clone);
+    const vb = (payload.getAttribute("viewBox") || "").split(/[\s,]+/).map(Number);
+    KBV.natW = vb.length >= 4 ? vb[2] : (parseFloat(payload.getAttribute("width")) || 800);
+    KBV.natH = vb.length >= 4 ? vb[3] : (parseFloat(payload.getAttribute("height")) || 600);
+    kbvNatural();
+  } else {
+    const img = el("img", "kbv-img"); img.alt = "";
+    media.appendChild(img);
+    KBV.natW = 800; KBV.natH = 600;
+    img.onload = () => { if (KBV.open) { kbvNatural(); kbvFit(KBV.fit); } };
+    img.src = payload;
+  }
+  const cap = $(".kbv-cap", v); if (cap) cap.textContent = caption || "";
+  v.classList.add("on");
+  requestAnimationFrame(() => kbvFit("width"));
+}
+function kbFigSvg(fig) { return [...fig.querySelectorAll("svg")].find(s => !s.closest(".kb-mm-badge")) || null; }
+function kbZoom(src) { kbOpenViewer("img", src, ""); }
 function kbOpenArticle(articleId) {
   const x = kbFind(articleId);
   if (!x) { toast("没有这篇文章"); return; }
@@ -746,6 +946,7 @@ function kbOpenArticle(articleId) {
 function kbOpenCourse(courseId) {
   const c = kbCourseById(courseId);
   if (!c) return;
+  kbvCloseIfOpen();
   if (KB.view === "read") kbSaveArticle(kbArticleHost());
   KB.course = c; KB.article = null; KB.view = "list"; KB.mounted = "";
   KB.scroll["list:" + c.id] = 0;
@@ -754,6 +955,7 @@ function kbOpenCourse(courseId) {
   renderKb();
 }
 function kbLeaveRead() {
+  kbvCloseIfOpen();
   if (KB.view === "read") kbSaveArticle(kbArticleHost());
   KB.view = KB.course ? "list" : "courses";
   KB.article = null; KB.mounted = "";
@@ -787,8 +989,7 @@ function renderKb() {
 
 /* ---------- 课程页事件 ---------- */
 scr.addEventListener("click", e => {
-  const zoom = e.target.closest("#kb-zoom");
-  if (zoom) { zoom.classList.remove("on"); return; }
+  if (e.target.closest("#kb-viewer")) return;   // 查看器内部的按钮/空白由 #kb-viewer 处理
   const kbBtn = e.target.closest("[data-kb]");
   if (kbBtn) {
     const act = kbBtn.dataset.kb;
@@ -812,6 +1013,11 @@ scr.addEventListener("click", e => {
   }
   const art = e.target.closest("[data-kb-art]");
   if (art) { kbOpenArticle(art.dataset.kbArt); return; }
+  const mmFig = e.target.closest(".art-doc figure.kb-mm");
+  if (mmFig && KB.view === "read") {
+    const svg = kbFigSvg(mmFig);
+    if (svg) { e.preventDefault(); kbOpenViewer("svg", svg, (mmFig.querySelector("figcaption") || {}).textContent || ""); return; }
+  }
   const link = e.target.closest(".kb-art a[data-kb-article], .kb-art a[href]");
   if (link && KB.view === "read") {
     e.preventDefault();
@@ -822,8 +1028,11 @@ scr.addEventListener("click", e => {
     return;
   }
   const img = e.target.closest(".art-doc img");
-  if (img && KB.view === "read" && img.classList.contains("kb-img-missing") === false) {
-    kbZoom(img.currentSrc || img.src);
+  if (img && KB.view === "read" && !img.classList.contains("kb-img-missing")) {
+    e.preventDefault();
+    const fig = img.closest("figure");
+    kbOpenViewer("img", img.currentSrc || img.src, (fig && fig.querySelector("figcaption") || {}).textContent || "");
+    return;
   }
 });
 sheet.addEventListener("click", e => {
@@ -2560,6 +2769,7 @@ async function setScreen(s) {
   if (!CARD) render(st.tab);
   if (R) { hideLookup(); layout(anchor); invalidatePages(); }
   if (KB.view === "read") kbRestoreRatio();
+  if (KBV.open) kbvFit("width");
   KB.lastViewport = innerWidth + "x" + innerHeight;
   if (cam.classList?.contains("on")) { placePhoto(); if (st.scan?.done) drawMarks(); $$(".hw2", cam).forEach(x => x.classList.add("lit")); }
 }
@@ -2571,6 +2781,7 @@ new ResizeObserver(() => {
   if (KB.lastViewport && KB.lastViewport !== vp) {
     KB.lastViewport = vp;
     if (KB.view === "read") kbRestoreRatio();
+    if (KBV.open) kbvFit("width");
   }
   if (R && !st.busy && !st.kb && Math.abs(innerWidth - lastW) + Math.abs(innerHeight - R.H) > 1) { relayout(); invalidatePages(); }
   lastW = innerWidth;
@@ -2580,8 +2791,7 @@ new ResizeObserver(() => {
 /* ===================== 返回键 ===================== */
 window.onBack = () => {
   if (CARD) { closeCard(); return true; }
-  const zoom = $("#kb-zoom");
-  if (zoom && zoom.classList.contains("on")) { zoom.classList.remove("on"); return true; }
+  if (kbViewerOpen()) { kbCloseViewer(); return true; }
   if (sheet.classList.contains("on")) { closeSheet(); return true; }
   if (cam.classList.contains("on")) { closeCam(); return true; }
   if (R) {
