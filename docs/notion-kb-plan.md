@@ -210,6 +210,7 @@ Notion API 参考：[Retrieve a page as markdown](https://developers.notion.com/
 - P0 原型（fixture 4 篇）→ 管线与 UI 已在真实语料上跑通，跳过独立 P0。
 - P1 同步 + 托管：已完成。真实 Notion 80 篇（CS2680 12 / Berkeley 12 / 量化 48 / 架构 8）；图 66 张 1.9MB、mermaid 436 张 SVG、HTML 12.85MB（总 14.84MB）、转义残留 0；`verify PASS`。发布在 `update.lemonation.cloud/shubian-kb/<secret>/`（Caddy no-store/immutable/noindex）；Mac launchd `com.jimmy.shubian-kb-sync` 每 30 分钟增量 + 发布，ops-hub 登记 `shubian-kb`。
 - P2 App：已完成并实测。第 4 标签「课程」；外屏列表/全屏阅读、内屏 300+352dp 分栏；6 套主题、字号/行距、进度、离线缓存、图片放大、mermaid SVG、内链跳转；release APK 1.23/24 为 25,132,028 B（+8.1KB）。模拟器外屏/内屏/折叠/暗色/断网重开截图在 `../sandbox/tasks/shubian-notion-kb/emulator-screens/`。
+- 2026-11-07 追加：内屏（小米 18 Fold）阅读优化——默认全屏正文、顶栏随滚动收放、沉浸模式隐藏系统栏并记忆偏好、横屏 38em/竖屏满宽、旋转按比例保持滚动位置；1.24/25 发布。旧的内屏「左列表+右窄栏」截图作废。
 - P3 未做：宽 mermaid 暗色双份 SVG、未收录内链的外部链接、仅 WiFi 同步、Kuma 心跳。
 - 运维：`~/.config/shubian-kb/env`（600）存 Notion token 与内容 secret；Caddy 片段在 `~/ops-hub/deploy/fold-ds-updates/Caddyfile`（服务器 `/opt/ops-hub/`），改前备份 `Caddyfile.pre-shubian-kb-20261107`。
 - 注意：改 cleaner/HTML 模板后必须 `bash run.sh --full --publish` 全量重烘焙；App 端按每篇内容 `sha` 判断增量（不要只看 Notion `updated`）。

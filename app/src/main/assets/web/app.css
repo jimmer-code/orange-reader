@@ -608,17 +608,17 @@ textarea.field { height: auto; min-height: 96px; padding: 10px 14px; line-height
 .v-kb .kb-col .list { padding-left: 16px; }
 .v-kb .kb-col .list li > button { padding-right: 16px; }
 .v-kb .kb-pane { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); }
-.v-kb .kb-pane[data-theme] { background: var(--r-bg); color: var(--r-fg); }
-.v-kb .kb-pane-bar { flex: none; display: flex; justify-content: flex-end; gap: 4px; padding: 8px 12px 4px; border-bottom: 1px solid color-mix(in srgb, var(--r-fg, var(--text)) 14%, transparent); background: var(--r-bg, var(--bg)); color: var(--r-fg, var(--text)); }
-.v-kb .kb-pane-bar .txt-btn { font-size: 14px; }
 .v-kb .kb-pane-empty { margin: auto; color: var(--faint); }
 .v-kb .kb-pane .kb-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
-.kb-focus .nav { display: none; }
 
 /* 外屏阅读层 */
-.kb-read { position: absolute; inset: 0; z-index: 52; display: flex; flex-direction: column; background: var(--r-bg); color: var(--r-fg); }
+.kb-read { position: absolute; inset: 0; z-index: 52; display: flex; flex-direction: column; background: var(--r-bg); color: var(--r-fg); padding-top: var(--sat); }
 .kb-read[hidden] { display: none !important; }
-.kb-top { flex: none; display: flex; align-items: center; gap: 8px; padding: calc(var(--sat) + 6px) 12px 6px; }
+.kb-read.full { padding-top: 0; }
+.kb-top { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px; max-height: 96px; overflow: hidden; transition: max-height .24s var(--ease), opacity .18s ease-out, padding .24s var(--ease); }
+.kb-read.full .kb-top { padding-top: 8px; }
+.kb-read.nochrome .kb-top { max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; pointer-events: none; }
+.outer .kb-read [data-kb="full"] { display: none; }
 .kb-top .circle { background: var(--r-chip); color: var(--r-fg); }
 .kb-top-t { flex: 1; min-width: 0; font-size: 12px; color: var(--r-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kb-prog { flex: none; height: 2px; background: color-mix(in srgb, var(--r-fg) 12%, transparent); }
@@ -632,7 +632,16 @@ textarea.field { height: auto; min-height: 96px; padding: 10px 14px; line-height
 .art[data-font="source"] { --r-font: "Source Serif 4", Georgia, var(--f-text); }
 .art[data-font="sans"] { --r-font: var(--f-text); }
 .art-doc { max-width: 34em; margin: 0 auto; padding: 10px 20px 56px; font-family: var(--r-font); font-size: var(--r-size); line-height: var(--r-lh); font-weight: var(--r-weight); text-align: var(--r-align); hyphens: var(--r-hyph); color: var(--r-fg); text-wrap: pretty; overflow-wrap: break-word; }
-.inner .kb-pane .art-doc { padding: 10px 24px 48px; }
+/* 内屏阅读：横屏单栏居中 measure≈38em（中文约 38 字/行），竖屏满宽留 20–24dp；行高至少 1.8 */
+.inner .kb-read .art-doc { box-sizing: content-box; line-height: max(var(--r-lh, 1.75), 1.8); }
+@media (orientation: landscape) {
+  .inner .kb-read .art-doc { max-width: 38em; margin: 0 auto; padding: 18px 40px 64px; }
+}
+@media (orientation: portrait) {
+  .inner .kb-read .art-doc { max-width: none; margin: 0; padding: 14px 22px 56px; }
+}
+.inner .kb-read .art-doc figure img { display: block; width: auto; max-width: 100%; max-height: 76vh; height: auto; margin: 0 auto; }
+.inner .kb-read .art-doc figure figcaption { text-align: center; }
 .art-doc h1 { margin: 18px 0 6px; font-family: var(--f-book); font-size: 28px; font-weight: 400; line-height: 1.25; }
 .art-doc h2 { margin: 1.7em 0 .6em; font-size: 20px; font-weight: 600; line-height: 1.35; }
 .art-doc h3 { margin: 1.4em 0 .5em; font-size: 17px; font-weight: 600; }

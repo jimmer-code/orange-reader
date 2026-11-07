@@ -270,3 +270,11 @@
 - **内容**：80 篇（CS2680 12、Berkeley 12、量化 48、架构 8），图 66 张 1.9MB、mermaid 436 张 SVG、HTML 12.85MB（总 14.84MB）；转义残留 0；index 每篇带内容 sha（App 按 sha 判断正文重下）。
 - **验证**：`node --check` / `gradlew assembleRelease` / `lintDebug` 通过，release APK 25,132,028 B（+8.1KB）；模拟器外屏/内屏/折叠、深浅主题、真实同步、断网重开、图片与 mermaid 渲染都实测（截图在 `sandbox/tasks/shubian-notion-kb/emulator-screens/`）；发布后改文章 30 分钟内 App 可拿到新 release。
 - 偏差/待办：宽 mermaid 在暗色下仍是浅底（可后续出双份 SVG）；内链指向未收录文章目前只 toast；「仅 WiFi 同步」和 Kuma 心跳未接。
+
+### M26 追加：内屏阅读优化（小米 18 Fold，1.24/25）
+- 内屏阅读从「左 300 列表 + 右 352 窄栏」改成**默认全屏正文**：文章统一在 `#kb-read` 全屏层，列表页仍保持左列表/右空态；外屏行为不变。
+- 顶部阅读栏：返回/标题/目录/主题与字号/全屏切换；滚动方向累计 >18px 才收放（不会一滚一抖），收起只留 2px 进度条；点正文切换。全屏（沉浸）模式收起全部 chrome 并 `N.bars(false)` 隐藏系统栏，偏好存 `kv kbfull`（只有点按钮才改偏好）。
+- 横屏：正文 38em（684px）居中、左右 48dp、行高 1.8；竖屏：满宽、左右 22dp；图片限高 76vh；表格/宽 mermaid 保持横滚、页面零横向滚动。
+- 旋转/折叠：滚动位置按比例恢复（实测横→竖 0.4806→0.4800、竖→横 0.4800→0.4800，Δ<0.1%）；文章不重挂。
+- 模拟器实测（截图 `sandbox/tasks/shubian-notion-kb/inner-ui-emulator/`）：860×608 横屏、608×860 竖屏、沉浸隐藏系统栏、点正文返回顶栏、返回键先退全屏再退文章、TOC/主题面板在沉浸下可用、外屏无回归、长文（量化 B3，35,981px）表格/13 张 mermaid 正常。
+- 验证：`node --check`、`gradlew clean testDebugUnitTest lintDebug assembleRelease` 通过；release APK 1.24/25。

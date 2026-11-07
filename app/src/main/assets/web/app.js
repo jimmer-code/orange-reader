@@ -68,6 +68,8 @@ const I = {
   list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r=".6" fill="currentColor"/><circle cx="4.5" cy="12" r=".6" fill="currentColor"/><circle cx="4.5" cy="18" r=".6" fill="currentColor"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>',
   aa: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18l5-12 5 12M4.8 14h6.4M15 18l3-7.5 3 7.5M15.9 16h4.2"/></svg>',
+  expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3.5H3.5V9M15 3.5h5.5V9M9 20.5H3.5V15M15 20.5h5.5V15"/></svg>',
+  shrink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 9H9V3.5M20.5 9H15V3.5M3.5 15H9v5.5M20.5 15H15v5.5"/></svg>',
   star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6-5-2.7-5 2.7.9-5.6-4-3.9 5.6-.8z"/></svg>',
   starOn: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6-5-2.7-5 2.7.9-5.6-4-3.9 5.6-.8z"/></svg>',
   bm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 3.5h10v17l-5-3.5-5 3.5z"/></svg>',
@@ -334,7 +336,9 @@ const KB = {
   view: "courses", course: null, article: null, index: null,
   status: "idle", lastSync: 0, errMsg: "", syncDone: 0, syncTotal: 0,
   prog: kv.get("kbprog", {}) || {}, seen: kv.get("kbseen", {}) || {},
-  autoTried: false, mounted: "", fetched: {}, scroll: {}, userScrolled: false
+  autoTried: false, mounted: "", fetched: {}, scroll: {}, userScrolled: false,
+  full: false, chrome: true, lastY: 0, acc: 0, idleT: 0, suppress: false, barsOn: null,
+  ratio: 0, ratioT: 0, lastViewport: ""
 };
 const KB_STALE = 6 * 3600e3;
 const kbSave = () => { kv.set("kbprog", KB.prog); kv.set("kbseen", KB.seen); kv.set("kblast", KB.lastSync); };
@@ -485,10 +489,7 @@ function kbListHTML() {
     <div class="lg-head"><h2>${esc(c.title)}</h2><span class="kb-count">${kbArticles(c).length} 篇</span></div>
     ${kbStatusBar()}`;
   if (st.screen === "inner") {
-    const pane = KB.view === "read"
-      ? `<div class="kb-pane" data-theme="${esc(st.theme)}"><div class="kb-pane-bar"><button class="txt-btn" data-kb="toc">目录</button><button class="txt-btn" data-kb="themes">主题与字号</button><button class="txt-btn" data-kb="focus">专注</button></div><div class="kb-scroll"></div></div>`
-      : `<div class="kb-pane"><div class="kb-pane-empty">选一篇文章开始读</div></div>`;
-    return `<div class="kb-split"><div class="kb-col">${head}<ul class="list kb-rows">${rows}</ul></div>${pane}</div>`;
+    return `<div class="kb-split"><div class="kb-col">${head}<ul class="list kb-rows">${rows}</ul></div><div class="kb-pane"><div class="kb-pane-empty">选一篇文章开始读</div></div></div>`;
   }
   return `${head}<ul class="list kb-rows">${rows}</ul>`;
 }
@@ -501,38 +502,98 @@ function kbLayer() {
     layer.innerHTML = `<div class="kb-top">
       <button class="circle" data-kb="back" aria-label="返回">${I.chev}</button>
       <span class="kb-top-t"></span>
-      <button class="circle" data-kb="themes" aria-label="主题与字号">${I.aa}</button>
       <button class="circle" data-kb="toc" aria-label="目录">${I.list}</button>
+      <button class="circle" data-kb="themes" aria-label="主题与字号">${I.aa}</button>
+      <button class="circle" data-kb="full" aria-label="全屏阅读" aria-pressed="false">${I.expand}</button>
     </div><div class="kb-prog"><i></i></div><div class="kb-scroll"></div>`;
     scr.appendChild(layer);
+    kbBindLayerGestures(layer);
   }
   layer.hidden = false;
   layer.dataset.theme = st.theme;
+  layer.classList.toggle("full", !!KB.full);
+  layer.classList.toggle("nochrome", !KB.chrome);
   const t = $(".kb-top-t", layer);
   if (t) t.textContent = (KB.article && KB.article.a && KB.article.a.title) || "";
+  const fb = $('[data-kb="full"]', layer);
+  if (fb) { fb.innerHTML = KB.full ? I.shrink : I.expand; fb.setAttribute("aria-pressed", KB.full ? "true" : "false"); }
   return layer;
 }
-function kbArticleHost() {
-  return st.screen === "inner" ? $("#v-kb .kb-pane .kb-scroll") : $("#kb-read .kb-scroll");
+
+/* ---------- 沉浸/顶栏 ---------- */
+function kbBars(visible) {
+  if (KB.barsOn === visible) return;
+  KB.barsOn = visible;
+  try { N.bars(visible, !darkUI()); } catch (e) { }
 }
+function kbSetChrome(on) {
+  KB.chrome = !!on;
+  const layer = $("#kb-read");
+  if (layer) layer.classList.toggle("nochrome", !KB.chrome);
+  clearTimeout(KB.idleT);
+  if (KB.full && KB.chrome) KB.idleT = setTimeout(() => { if (KB.full) kbSetChrome(false); }, 2200);
+}
+function kbSetFull(on, remember = true) {
+  KB.full = !!on;
+  const layer = $("#kb-read");
+  if (layer) {
+    layer.classList.toggle("full", KB.full);
+    const fb = $('[data-kb="full"]', layer);
+    if (fb) { fb.innerHTML = KB.full ? I.shrink : I.expand; fb.setAttribute("aria-pressed", KB.full ? "true" : "false"); }
+  }
+  if (KB.full) { kbSetChrome(false); kbBars(false); }
+  else { kbBars(true); kbSetChrome(true); }
+  if (remember) kv.set("kbfull", KB.full);
+  clearTimeout(KB.idleT);
+  if (KB.full) KB.idleT = setTimeout(() => { if (KB.full) kbSetChrome(false); }, 1800);
+}
+function kbChromeOnScroll(host) {
+  if (KB.suppress) return;
+  const y = host.scrollTop, dy = y - (KB.lastY || 0);
+  KB.lastY = y;
+  if (Math.abs(dy) < 1) return;
+  KB.acc = (KB.acc > 0 && dy > 0) || (KB.acc < 0 && dy < 0) ? KB.acc + dy : dy;
+  if (KB.acc > 18 && y > 40 && KB.chrome) { kbSetChrome(false); KB.acc = 0; }
+  else if (KB.acc < -18 && !KB.chrome) { kbSetChrome(true); KB.acc = 0; }
+  if (KB.full) {
+    clearTimeout(KB.idleT);
+    KB.idleT = setTimeout(() => { if (KB.full && host.scrollTop > 30) kbSetChrome(false); }, 1000);
+  }
+}
+function kbBindLayerGestures(layer) {
+  if (layer.dataset.kbgest) return;
+  layer.dataset.kbgest = "1";
+  layer.addEventListener("click", e => {
+    if (st.screen !== "inner" || KB.view !== "read") return;
+    if (e.target.closest("a, img, figure, pre, table, svg, button, .kb-zoom, .kb-top, .kb-prog")) return;
+    if (KB.full) { if (KB.chrome) kbSetFull(false, false); else kbSetChrome(true); return; }
+    kbSetChrome(!KB.chrome);
+  });
+}
+function kbArticleHost() { return $("#kb-read .kb-scroll"); }
 function kbDoc() { return kbArticleHost() ? $(".art-doc", kbArticleHost()) : null; }
 function kbEnterRead() {
   if (R) return;
   scr.classList.add("reading");
   try { N.reading(true); } catch (e) { }
-  if (st.screen === "outer") { try { N.bars(false, true); } catch (e) { } }
+  if (st.screen === "outer" || KB.full) kbBars(false);
+  else kbBars(true);
 }
 function kbExitRead() {
   if (R) return;
   scr.classList.remove("reading");
+  KB.full = false; KB.chrome = true;
+  clearTimeout(KB.idleT);
   try { N.reading(false); } catch (e) { }
-  if (st.screen === "outer") { try { N.bars(true, !darkUI()); } catch (e) { } }
+  kbBars(true);
+  const layer = $("#kb-read");
+  if (layer) layer.classList.remove("full", "nochrome");
 }
 function kbRenderArticle(force) {
   const host = kbArticleHost(), pair = KB.article;
   if (!host || !pair) return;
   const { c, a } = pair;
-  const key = (st.screen === "inner" ? "i:" : "o:") + c.id + "/" + a.id + "/" + (a.updated || "");
+  const key = c.id + "/" + a.id + "/" + (a.updated || "");
   if (!force && KB.mounted === key && $(".art-doc", host)) return;
   KB.mounted = key;
   host.innerHTML = `<div class="art" data-theme="${esc(st.theme)}" data-font="${esc(st.font)}" lang="zh-CN"><div class="art-doc"></div><div class="kb-loading"><span class="ring"></span></div></div>`;
@@ -587,11 +648,21 @@ function kbPrepArticle(doc) {
 function kbRestoreArticle(host, a) {
   const p = KB.prog[a.id];
   KB.userScrolled = false;
-  if (!p || !p.y) return;
-  requestAnimationFrame(() => { if (!KB.userScrolled && host) host.scrollTop = p.y; });
+  KB.suppress = true;
+  const pct = p && p.pct != null ? Math.max(0, Math.min(1, p.pct)) : 0;
+  KB.ratio = pct;
+  const apply = () => {
+    if (KB.userScrolled || !host) return;
+    const max = Math.max(0, host.scrollHeight - host.clientHeight);
+    if (max > 0) host.scrollTop = Math.round(pct * max);
+    kbUpdateProg(host);
+  };
+  setTimeout(() => { KB.suppress = false; KB.lastY = host ? host.scrollTop : 0; KB.ratio = pct; }, 600);
+  if (!pct) return;
+  requestAnimationFrame(apply);
   $$("img", host).forEach(img => {
     if (img.complete) return;
-    img.addEventListener("load", () => { if (!KB.userScrolled) host.scrollTop = p.y; }, { once: true });
+    img.addEventListener("load", () => { if (!KB.userScrolled) apply(); }, { once: true });
   });
 }
 function kbMarkSeen(a) {
@@ -605,7 +676,10 @@ function kbBindScroll(host) {
   let t = 0;
   host.addEventListener("scroll", () => {
     KB.userScrolled = true;
+    const max = Math.max(1, host.scrollHeight - host.clientHeight);
+    KB.ratio = host.scrollTop / max;
     kbUpdateProg(host);
+    if (st.screen === "inner" && KB.view === "read") kbChromeOnScroll(host);
     clearTimeout(t); t = setTimeout(() => kbSaveArticle(host), 400);
   }, { passive: true });
 }
@@ -622,6 +696,27 @@ function kbUpdateProg(host) {
   if (!bar || !host) return;
   const max = Math.max(0, host.scrollHeight - host.clientHeight);
   bar.style.width = Math.round((max > 0 ? host.scrollTop / max : 0) * 100) + "%";
+}
+/* 旋转/折叠后按比例恢复位置：见 ResizeObserver / setScreen 调用 */
+function kbRestoreRatio() {
+  const host = kbArticleHost();
+  if (!host || KB.view !== "read") return;
+  const ratio = Math.max(0, Math.min(1, KB.ratio || 0));
+  KB.suppress = true;
+  const apply = () => {
+    const max = Math.max(0, host.scrollHeight - host.clientHeight);
+    if (max > 0) host.scrollTop = Math.round(ratio * max);
+    kbUpdateProg(host);
+  };
+  requestAnimationFrame(() => { apply(); requestAnimationFrame(apply); });
+  clearTimeout(KB.ratioT);
+  KB.ratioT = setTimeout(() => {
+    apply();
+    KB.suppress = false;
+    KB.lastY = host.scrollTop;
+    const max = Math.max(1, host.scrollHeight - host.clientHeight);
+    KB.ratio = host.scrollTop / max;
+  }, 420);
 }
 function kbOpenToc() {
   const doc = kbDoc();
@@ -642,6 +737,10 @@ function kbOpenArticle(articleId) {
   if (!x) { toast("没有这篇文章"); return; }
   if (KB.view === "read") kbSaveArticle(kbArticleHost());
   KB.course = x.c; KB.article = x; KB.view = "read"; KB.mounted = ""; KB.userScrolled = false;
+  KB.chrome = true; KB.lastY = 0; KB.acc = 0; KB.suppress = false; KB.ratio = 0;
+  KB.lastViewport = innerWidth + "x" + innerHeight;
+  KB.full = st.screen === "inner" && !!kv.get("kbfull", false);
+  if (KB.full) KB.chrome = false;   // 沉浸模式进入即收起顶栏
   renderKb();
 }
 function kbOpenCourse(courseId) {
@@ -651,7 +750,6 @@ function kbOpenCourse(courseId) {
   KB.course = c; KB.article = null; KB.view = "list"; KB.mounted = "";
   KB.scroll["list:" + c.id] = 0;
   kbExitRead();
-  document.documentElement.classList.remove("kb-focus");
   const layer = $("#kb-read"); if (layer) layer.hidden = true;
   renderKb();
 }
@@ -660,7 +758,6 @@ function kbLeaveRead() {
   KB.view = KB.course ? "list" : "courses";
   KB.article = null; KB.mounted = "";
   kbExitRead();
-  document.documentElement.classList.remove("kb-focus");
   const layer = $("#kb-read"); if (layer) layer.hidden = true;
 }
 function kbBack() {
@@ -677,7 +774,8 @@ function renderKb() {
     if (!KB.autoTried && kbNeedsSync()) { KB.autoTried = true; kbSync(false); }
     return;
   }
-  if (KB.view === "read" && st.screen === "outer") kbLayer();
+  if (KB.view === "read" && st.screen === "outer" && KB.full) kbSetFull(false, false);
+  if (KB.view === "read") kbLayer();
   else { const layer = $("#kb-read"); if (layer) layer.hidden = true; }
   if (KB.view === "courses") v.innerHTML = kbCoursesHTML();
   else v.innerHTML = kbListHTML();
@@ -697,10 +795,10 @@ scr.addEventListener("click", e => {
     if (act === "back") kbBack();
     else if (act === "courses") { kbLeaveRead(); KB.view = "courses"; KB.course = null; renderKb(); }
     else if (act === "sync") kbSync(true);
-    else if (act === "themes") openThemes(true);
-    else if (act === "toc") kbOpenToc();
+    else if (act === "full") { if (st.screen === "inner" && KB.view === "read") kbSetFull(!KB.full); }
+    else if (act === "themes") { if (KB.view === "read") kbSetChrome(true); openThemes(true); }
+    else if (act === "toc") { if (KB.view === "read") kbSetChrome(true); kbOpenToc(); }
     else if (act === "retry-art") kbRenderArticle(true);
-    else if (act === "focus") document.documentElement.classList.toggle("kb-focus");
     return;
   }
   const course = e.target.closest("[data-kb-course]");
@@ -2461,12 +2559,19 @@ async function setScreen(s) {
   if (sheet.classList.contains("on") && !CARD) closeSheet();
   if (!CARD) render(st.tab);
   if (R) { hideLookup(); layout(anchor); invalidatePages(); }
+  if (KB.view === "read") kbRestoreRatio();
+  KB.lastViewport = innerWidth + "x" + innerHeight;
   if (cam.classList?.contains("on")) { placePhoto(); if (st.scan?.done) drawMarks(); $$(".hw2", cam).forEach(x => x.classList.add("lit")); }
 }
 new ResizeObserver(() => {
   const s = innerWidth >= 600 ? "inner" : "outer";
-  if (CARD) { document.documentElement.classList.toggle("inner-card", s === "inner"); st.screen = s; fit(); return; }
-  if (s !== st.screen) { setScreen(s); lastW = innerWidth; return; }
+  const vp = innerWidth + "x" + innerHeight;
+  if (CARD) { document.documentElement.classList.toggle("inner-card", s === "inner"); st.screen = s; fit(); KB.lastViewport = vp; return; }
+  if (s !== st.screen) { setScreen(s); lastW = innerWidth; KB.lastViewport = vp; return; }
+  if (KB.lastViewport && KB.lastViewport !== vp) {
+    KB.lastViewport = vp;
+    if (KB.view === "read") kbRestoreRatio();
+  }
   if (R && !st.busy && !st.kb && Math.abs(innerWidth - lastW) + Math.abs(innerHeight - R.H) > 1) { relayout(); invalidatePages(); }
   lastW = innerWidth;
   if (cam.classList?.contains("on") && st.scan) { placePhoto(); if (st.scan.done) drawMarks(); $$(".hw2", cam).forEach(x => x.classList.add("lit")); }
@@ -2475,6 +2580,8 @@ new ResizeObserver(() => {
 /* ===================== 返回键 ===================== */
 window.onBack = () => {
   if (CARD) { closeCard(); return true; }
+  const zoom = $("#kb-zoom");
+  if (zoom && zoom.classList.contains("on")) { zoom.classList.remove("on"); return true; }
   if (sheet.classList.contains("on")) { closeSheet(); return true; }
   if (cam.classList.contains("on")) { closeCam(); return true; }
   if (R) {
@@ -2482,6 +2589,7 @@ window.onBack = () => {
     if (R.menu.classList.contains("on")) { R.menu.classList.remove("on"); return true; }
     closeBook(); return true;
   }
+  if (st.tab === "kb" && KB.view === "read" && KB.full) { kbSetFull(false, false); return true; }
   if (st.tab === "kb" && (KB.view === "read" || KB.view === "list")) { kbBack(); return true; }
   if (st.tab === "physical" && (st.query || st.pick)) { clearQuery(); return true; }
   if (st.tab !== "physical") { setTab("physical"); return true; }
