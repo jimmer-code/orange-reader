@@ -1,6 +1,8 @@
 "use strict";
 /* 书边译：界面和交互来自 prototype/index.html，数据和系统能力由原生 window.Native 提供。 */
 const N = window.Native;
+const State = window.ShuState;
+if (!State) throw new Error("Shubian state runtime is missing");
 const params = new URLSearchParams(location.search);
 const CARD = params.get("mode") === "card";
 const kv = {
@@ -21,6 +23,12 @@ const st = {
   lh: RS.lh || "m", margin: RS.margin || "m", justify: RS.justify !== false, pub: RS.pub !== false,
   words: "all", query: "", pick: null, pickSrc: null, more: false, scan: null
 };
+const tabMachine = State.machine("tab", "physical", {
+  physical: { set: v => ["physical", "library", "kb", "words"].includes(v) ? v : null },
+  library: { set: v => ["physical", "library", "kb", "words"].includes(v) ? v : null },
+  kb: { set: v => ["physical", "library", "kb", "words"].includes(v) ? v : null },
+  words: { set: v => ["physical", "library", "kb", "words"].includes(v) ? v : null }
+});
 const saved = new Map(kv.get("saved", []));      // lemma → { src, type, t, book, pos, sentence, sense, word }
 const savedPhrases = new Map(kv.get("savedPhrases", []));
 const savedQuotes = new Map(kv.get("savedQuotes", []));
@@ -193,6 +201,24 @@ scr.innerHTML = CARD ? `
   <div class="cam" id="cam"></div>
   <div class="toast" id="toast"></div>`;
 const scrim = $("#scrim"), sheet = $("#sheet"), toastEl = $("#toast"), cam = $("#cam");
+const sheetMachine = State.machine("sheet", "closed", {
+  closed: { open: "open" },
+  open: { open: "open", close: "closed" }
+});
+const sheetGate = State.gate("sheet");
+const sheetOpen = () => sheetMachine.is("open");
+const publishState = () => {
+  const snapshot = {
+    tab: tabMachine.state,
+    sheet: sheetMachine.state,
+    kb: typeof KB !== "undefined" ? { view: KB.view, sync: KB.status } : null,
+    scan: scanMachine.state,
+    reader: readerMachine.state,
+    viewer: typeof KBV !== "undefined" && KBV.open ? "open" : "closed"
+  };
+  document.documentElement.dataset.shubianState = JSON.stringify(snapshot);
+  window.__SHUBIAN_STATE__ = snapshot;
+};
 
 window.setInsets = (t, b, l, r, kb) => {
   const s = document.documentElement.style;
@@ -214,16 +240,24 @@ handlers.toast = toast;
 /* ---------- 底部卡片 ---------- */
 let sheetClose = null;
 function openSheet(html, cls = "", onClose = null) {
+  sheetGate.begin();
+  sheetMachine.transition("open");
   sheet.className = "sheet " + cls; sheet.innerHTML = `<div class="grab"></div>${html}`;
+  sheet.dataset.state = sheetMachine.state;
   scrim.classList.add("on");
   requestAnimationFrame(() => requestAnimationFrame(() => sheet.classList.add("on")));
   sheetClose = onClose;
+  publishState();
 }
 function closeSheet() {
-  if (!sheet.classList.contains("on")) return;
+  if (!sheetOpen()) return;
+  sheetGate.cancel();
+  sheetMachine.transition("close");
+  sheet.dataset.state = sheetMachine.state;
   sheet.classList.remove("on"); scrim.classList.remove("on");
   if (document.activeElement?.closest?.("#sheet")) { document.activeElement.blur(); if (st.kb) N.keyboard(false); }
   if (sheetClose) { const f = sheetClose; sheetClose = null; f(); }
+  publishState();
 }
 scrim.addEventListener("click", closeSheet);
 // 下拉关闭
@@ -250,12 +284,15 @@ scrim.addEventListener("click", closeSheet);
 /* ---------- 标签切换 ---------- */
 function setTab(tab, focus = true) {
   if (st.tab === "kb" && tab !== "kb") kbLeaveRead();
+  const changed = tabMachine.transition("set", tab);
+  if (!changed.ok) return;
   st.tab = tab; st.pick = null;
   $$(".nav button[data-tab]").forEach(b => b.setAttribute("aria-current", b.dataset.tab === tab));
   $$(".view").forEach(v => { const on = v.id === "v-" + tab; v.hidden = !on; if (on) { v.classList.remove("enter"); void v.offsetWidth; v.classList.add("enter"); } });
   render(tab);
   // 不自动聚焦搜索框：进入查单词页只展示界面，键盘由用户点输入框再弹
   if (st.kb) N.keyboard(false);
+  publishState();
 }
 function render(tab) { ({ library: renderLibrary, physical: renderPhysical, kb: renderKb, words: renderWords })[tab](); }
 if (!CARD) {
@@ -341,8 +378,34 @@ const KB = {
   full: false, chrome: true, lastY: 0, acc: 0, idleT: 0, suppress: false, barsOn: null,
   ratio: 0, ratioT: 0, lastViewport: ""
 };
+const kbViewMachine = State.machine("kb-view", "courses", {
+  courses: { set: v => ["courses", "list", "read"].includes(v) ? v : null },
+  list: { set: v => ["courses", "list", "read"].includes(v) ? v : null },
+  read: { set: v => ["courses", "list", "read"].includes(v) ? v : null }
+});
+const kbSyncMachine = State.machine("kb-sync", "idle", {
+  idle: { start: "syncing", progress: "syncing", done: "idle", fail: "error" },
+  syncing: { progress: "syncing", done: "idle", fail: "error", start: "syncing" },
+  error: { start: "syncing", progress: "syncing", done: "idle", fail: "error" }
+});
 const KB_STALE = 6 * 3600e3;
 const kbSave = () => { kv.set("kbprog", KB.prog); kv.set("kbseen", KB.seen); kv.set("kblast", KB.lastSync); };
+function kbSetView(view) {
+  const result = kbViewMachine.transition("set", view);
+  if (!result.ok) return false;
+  KB.view = view;
+  publishState();
+  return true;
+}
+function kbSetSync(event, msg = "") {
+  const result = kbSyncMachine.transition(event);
+  if (!result.ok) return false;
+  KB.status = kbSyncMachine.state;
+  if (event === "fail") KB.errMsg = msg || "同步失败";
+  else if (event === "start") KB.errMsg = "";
+  publishState();
+  return true;
+}
 function kbParseIndex(raw) {
   if (!raw) return null;
   try { const o = typeof raw === "string" ? JSON.parse(raw) : raw; return o && o.courses ? o : null; } catch (e) { return null; }
@@ -377,15 +440,15 @@ function kbNeedsSync() { return !KB.index || !KB.lastSync || Date.now() - KB.las
 /* ---------- 同步 ---------- */
 function kbSync(manual) {
   if (KB.status === "syncing") return;
-  if (typeof N.kbSync !== "function") { KB.status = "error"; KB.errMsg = "当前版本还不支持课程同步"; renderKb(); return; }
-  KB.status = "syncing"; KB.syncDone = 0; KB.syncTotal = 0; KB.errMsg = "";
+  if (typeof N.kbSync !== "function") { kbSetSync("fail", "当前版本还不支持课程同步"); renderKb(); return; }
+  kbSetSync("start"); KB.syncDone = 0; KB.syncTotal = 0;
   renderKb();
   try { N.kbSync((KB.index && KB.index.release) || ""); }
-  catch (e) { KB.status = "error"; KB.errMsg = "同步失败"; renderKb(); }
+  catch (e) { kbSetSync("fail", "同步失败"); renderKb(); }
 }
-function kbSyncFail(msg) { KB.status = "error"; KB.errMsg = msg || "同步失败"; renderKb(); }
+function kbSyncFail(msg) { kbSetSync("fail", msg); renderKb(); }
 function kbSyncFinish() {
-  KB.status = "idle"; KB.lastSync = Date.now(); KB.syncDone = KB.syncTotal = 0;
+  kbSetSync("done"); KB.lastSync = Date.now(); KB.syncDone = KB.syncTotal = 0;
   kbLoadIndex(); kbSave(); KB.mounted = ""; KB.fetched = {};
   renderKb();
 }
@@ -408,16 +471,16 @@ handlers.kb = d => {
   const state = d.state || (d.error ? "error" : "progress");
   if (d.total != null) KB.syncTotal = d.total;
   if (d.done != null) KB.syncDone = d.done;
-  if (state === "error") { KB.status = "error"; KB.errMsg = d.msg || "同步失败"; renderKb(); return; }
+  if (state === "error") { kbSyncFail(d.msg || "同步失败"); return; }
   if (state === "done" || state === "ok") { kbSyncFinish(); return; }
-  if (KB.status !== "syncing") { KB.status = "syncing"; renderKb(); return; }
+  if (KB.status !== "syncing") { kbSetSync("progress"); renderKb(); return; }
   kbRefreshStatus();
 };
 handlers.kbIndex = idx => {
   const parsed = kbParseIndex(idx);
   if (!parsed) return;
   KB.index = parsed; KB.autoTried = true;
-  KB.status = "idle"; KB.lastSync = Date.now(); KB.syncDone = KB.syncTotal = 0;
+  kbSetSync("done"); KB.lastSync = Date.now(); KB.syncDone = KB.syncTotal = 0;
   KB.mounted = ""; KB.fetched = {}; kbSave(); renderKb();
 };
 
@@ -611,6 +674,7 @@ function kbRenderArticle(force) {
     kbRestoreArticle(host, a);
     kbUpdateProg(host);
   }).catch(err => {
+    if (KB.mounted !== key) return;
     const doc = $(".art-doc", host); if (!doc) return;
     const msg = err && err.message ? err.message : "";
     doc.innerHTML = `<div class="kb-err"><p>这篇还没下载好</p>${msg ? `<p class="note">${esc(msg)}</p>` : ""}<button class="pill primary" data-kb="retry-art">重试</button></div>`;
@@ -843,6 +907,10 @@ const KBV = {
   open: false, kind: "", natW: 800, natH: 600, base: 1, z: 1, tx: 0, ty: 0, rot: 0,
   fit: "width", pointers: new Map(), lastTap: 0, lastTapX: 0, lastTapY: 0, moved: false
 };
+const viewerMachine = State.machine("viewer", "closed", {
+  closed: { open: "open" },
+  open: { open: "open", close: "closed" }
+});
 function kbViewer() {
   let v = $("#kb-viewer");
   if (v) return v;
@@ -861,9 +929,11 @@ function kbvMediaEl() { return $("#kb-viewer .kbv-media"); }
 function kbViewerOpen() { const v = $("#kb-viewer"); return !!(v && v.classList.contains("on")); }
 function kbCloseViewer() {
   const v = $("#kb-viewer"); if (!v) return;
+  if (!viewerMachine.transition("close").ok) return;
   v.classList.remove("on");
   KBV.open = false; KBV.pointers.clear(); KBV.moved = false;
   const media = kbvMediaEl(); if (media) media.innerHTML = "";
+  publishState();
 }
 function kbvCloseIfOpen() { if (KBV.open) kbCloseViewer(); }
 function kbvApply() {
@@ -1009,6 +1079,7 @@ function kbvNatural() {
 function kbOpenViewer(kind, payload, caption) {
   const v = kbViewer(), media = kbvMediaEl();
   if (!media) return;
+  if (!viewerMachine.transition("open").ok) return;
   media.innerHTML = ""; media.style.transform = "";
   KBV.open = true; KBV.kind = kind; KBV.rot = 0; KBV.fit = "width"; KBV.z = 1; KBV.tx = 0; KBV.ty = 0;
   KBV.pointers.clear(); KBV.moved = false; KBV.lastTap = 0;
@@ -1030,6 +1101,7 @@ function kbOpenViewer(kind, payload, caption) {
   }
   const cap = $(".kbv-cap", v); if (cap) cap.textContent = caption || "";
   v.classList.add("on");
+  publishState();
   requestAnimationFrame(() => kbvFit("width"));
 }
 function kbFigSvg(fig) {
@@ -1041,7 +1113,7 @@ function kbOpenArticle(articleId) {
   const x = kbFind(articleId);
   if (!x) { toast("没有这篇文章"); return; }
   if (KB.view === "read") kbSaveArticle(kbArticleHost());
-  KB.course = x.c; KB.article = x; KB.view = "read"; KB.mounted = ""; KB.userScrolled = false;
+  KB.course = x.c; KB.article = x; kbSetView("read"); KB.mounted = ""; KB.userScrolled = false;
   KB.chrome = true; KB.lastY = 0; KB.acc = 0; KB.suppress = false; KB.ratio = 0;
   KB.lastViewport = innerWidth + "x" + innerHeight;
   KB.full = st.screen === "inner" && !!kv.get("kbfull", false);
@@ -1053,7 +1125,7 @@ function kbOpenCourse(courseId) {
   if (!c) return;
   kbvCloseIfOpen();
   if (KB.view === "read") kbSaveArticle(kbArticleHost());
-  KB.course = c; KB.article = null; KB.view = "list"; KB.mounted = "";
+  KB.course = c; KB.article = null; kbSetView("list"); KB.mounted = "";
   KB.scroll["list:" + c.id] = 0;
   kbExitRead();
   const layer = $("#kb-read"); if (layer) layer.hidden = true;
@@ -1062,14 +1134,14 @@ function kbOpenCourse(courseId) {
 function kbLeaveRead() {
   kbvCloseIfOpen();
   if (KB.view === "read") kbSaveArticle(kbArticleHost());
-  KB.view = KB.course ? "list" : "courses";
+  kbSetView(KB.course ? "list" : "courses");
   KB.article = null; KB.mounted = "";
   kbExitRead();
   const layer = $("#kb-read"); if (layer) layer.hidden = true;
 }
 function kbBack() {
   if (KB.view === "read") { kbLeaveRead(); renderKb(); return; }
-  if (KB.view === "list") { KB.view = "courses"; KB.course = null; renderKb(); return; }
+  if (KB.view === "list") { kbSetView("courses"); KB.course = null; renderKb(); return; }
   setTab("physical");
 }
 function renderKb() {
@@ -1101,7 +1173,7 @@ scr.addEventListener("click", e => {
   if (kbBtn) {
     const act = kbBtn.dataset.kb;
     if (act === "back") kbBack();
-    else if (act === "courses") { kbLeaveRead(); KB.view = "courses"; KB.course = null; renderKb(); }
+    else if (act === "courses") { kbLeaveRead(); kbSetView("courses"); KB.course = null; renderKb(); }
     else if (act === "sync") kbSync(true);
     else if (act === "full") { if (st.screen === "inner" && KB.view === "read") kbSetFull(!KB.full); }
     else if (act === "themes") { if (KB.view === "read") kbSetChrome(true); openThemes(true); }
@@ -1373,6 +1445,12 @@ scr.addEventListener("click", e => {
 
 /* ===================== 阅读器 ===================== */
 let R = null;
+const readerMachine = State.machine("reader", "closed", {
+  closed: { open: "ready" },
+  ready: { turn: "turning", close: "closing" },
+  turning: { turn: "turning", ready: "ready" },
+  closing: { closed: "closed" }
+});
 const bookUrl = (id, path) => `/book/${id}/${path.split("/").map(encodeURIComponent).join("/")}`;
 /* ---------- 原书样式：参照 ReadiumCSS 的做法，保留原书的版式（对齐、缩进、小型大写、间距、图片宽度），
    去掉与阅读设置冲突的属性（字体、字号基准、颜色、行高、页面定位），选择器限定在书页内 ---------- */
@@ -1560,6 +1638,7 @@ function fragPagesOf(flow, ch) {
 }
 async function openBook(id, coverEl) {
   const b = BOOKS.find(x => x.id === id); if (!b || st.busy) return;
+  if (!readerMachine.transition("open").ok) return;
   clearTurnQueue();
   const t0 = performance.now();
   // Gutenberg 等会把纸书页码（如 {32}）也写进目录，去掉
@@ -1590,11 +1669,13 @@ async function openBook(id, coverEl) {
   const clips = $$(".rd-clip", r);
   R = { r, clip: clips[0], flow: $(".rd-flow", clips[0]), mclip: clips[1], mflow: $(".rd-flow", clips[1]), turn: $(".rd-turn", r), lk: $(".lk", r), menu: $(".rmenu", r),
     ch: 0, page: 0, pages: 1, counts: null, tnDirty: true, wordNodes: null, wordNodeIndex: null, wordRects: null };
+  publishState();
   bindReader();
   if (coverEl && !reduced) zoomFromCover(coverEl, r);
   else r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: "ease-out" });
   await document.fonts.ready;
   await loadChapter(Math.min(pr.ch || 0, b.spine.length - 1), { off: pr.off || 0 });
+  publishState();
   N.perf("open_book", Math.round(performance.now() - t0));
   setTimeout(measureAll, 400);
 }
@@ -1611,6 +1692,8 @@ function closeBook() {
   if (!R) return;
   clearTurnQueue();
   if (st.busy) return;
+  if (!readerMachine.transition("close").ok) return;
+  publishState();
   const b = st.book; savePos(true);
   const r = R.r; st.busy = true;
   hideLookup(); R.menu.classList.remove("on"); r.classList.remove("ui");
@@ -1618,7 +1701,7 @@ function closeBook() {
   N.reading(false); N.bars(true, !darkUI());
   if (st.tab !== "library") setTab("library", false); else renderLibrary();
   const target = $(`#v-library [data-open="${b.id}"] .cover`);
-  const done = () => { r.remove(); R = null; st.book = null; st.busy = false; dropBookCss(); };
+  const done = () => { r.remove(); R = null; st.book = null; st.busy = false; readerMachine.transition("closed"); publishState(); dropBookCss(); };
   if (!target || reduced) { r.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: "ease-out", fill: "forwards" }).finished.then(done); return; }
   const c = rectIn(target), [W, H] = dims();
   const ghost = target.cloneNode(true); ghost.style.cssText += `;position:absolute;z-index:55;left:0;top:0;width:${c.w}px;height:${c.h}px;transform-origin:0 0`;
@@ -1869,11 +1952,14 @@ async function runTurnQueue() {
 function turn(dir) { return queueTurn(dir); }
 async function animateTurn(dir, fast = false) {
   if (!R) return;
+  if (!readerMachine.transition("turn").ok) return;
+  publishState();
   if (R.back && ++R.back.turns > 3) clearBack();
   const stepN = R.spread ? 2 : 1, to = R.page + dir * stepN;
   const sameCh = to >= 0 && to < R.pages;
   if (!sameCh && (R.ch + dir < 0 || R.ch + dir >= st.book.spine.length)) {
-    R.flow.animate([{ translate: "0" }, { translate: `${-dir * 14}px` }, { translate: "0" }], { duration: 320, easing: "ease-out" }); return;
+    R.flow.animate([{ translate: "0" }, { translate: `${-dir * 14}px` }, { translate: "0" }], { duration: 320, easing: "ease-out" });
+    readerMachine.transition("ready"); publishState(); return;
   }
   hideLookup(); R.r.classList.remove("ui"); scr.classList.remove("ui"); R.menu.classList.remove("on"); N.bars(false, true);
   const go = async () => { if (sameCh) setPage(to); else await loadChapter(R.ch + dir, dir > 0 ? { page: 0 } : { last: true }); };
@@ -1892,7 +1978,7 @@ async function animateTurn(dir, fast = false) {
       const b = viewFor(R.page); b.style.left = dir * R.W + "px"; strip.append(b);
       await strip.animate([{ transform: "translateX(0)" }, { transform: `translateX(${-dir * R.W}px)` }], { duration: fast ? 240 : 420, easing: "cubic-bezier(.22,.8,.2,1)", fill: "forwards" }).finished;
     } else await curl(dir, go, fast ? 280 : 450);
-  } finally { layer.innerHTML = ""; st.busy = false; }
+  } finally { layer.innerHTML = ""; st.busy = false; readerMachine.transition("ready"); publishState(); }
 }
 async function curl(dir, go, duration) {
   const layer = R.turn, D = duration, ease = "cubic-bezier(.42,.05,.2,1)";
@@ -1927,7 +2013,7 @@ async function curl(dir, go, duration) {
   shade(castOn, hingeLeft ? 90 : 270, opening ? [{ opacity: .9 }, { opacity: 0 }] : [{ opacity: 0 }, { opacity: .8, offset: .6 }, { opacity: 0 }]);
   await flip.animate([{ transform: `rotateY(${keys[0]}deg)` }, { transform: `rotateY(${keys[1]}deg)` }], { duration: D, easing: ease, fill: "forwards" }).finished;
 }
-handlers.volume = d => { if (R && !sheet.classList.contains("on")) turn(+d); };
+handlers.volume = d => { if (R && !sheetOpen()) turn(+d); };
 
 /* ---------- 阅读器手势 ---------- */
 function wordAt(x, y) {
@@ -2698,10 +2784,15 @@ sheet.addEventListener("click", async e => {
       known.clear(); kv.set("known", []); s.textContent = "没有记录"; toast("已清除");
     } else if (s.dataset.st === "testjev") {
       s.textContent = "正在连接";
+      const sheetToken = sheetGate.current;
       try {
         const a = await jevAsk("It is a way I have of driving off the spleen.", { hard_spleen: { type: "noul", instructions: { word: "spleen", question: NOUL.question }, criteria: NOUL.criteria } });
+        if (!sheetGate.isCurrent(sheetToken) || !s.isConnected) return;
         s.textContent = a.hard_spleen ? "连接正常" : "返回格式不对";
-      } catch (err) { s.textContent = err.message || "连接失败"; }
+      } catch (err) {
+        if (!sheetGate.isCurrent(sheetToken) || !s.isConnected) return;
+        s.textContent = err.message || "连接失败";
+      }
     }
     return;
   }
@@ -2742,13 +2833,31 @@ async function demoTurn() { // 选了翻页方式后，在书页上演示一次
 }
 
 /* ===================== 拍照找生词 ===================== */
+const scanMachine = State.machine("scan", "closed", {
+  closed: { request: "requesting", image: "recognizing", cancel: "closed" },
+  requesting: { image: "recognizing", cancel: "closed", request: "requesting" },
+  recognizing: { judge: "judging", error: "error", request: "requesting", cancel: "closed" },
+  judging: { results: "results", error: "error", request: "requesting", cancel: "closed" },
+  results: { request: "requesting", cancel: "closed" },
+  error: { request: "requesting", cancel: "closed" }
+});
+function scanTransition(event) {
+  const result = scanMachine.transition(event);
+  if (result.ok) {
+    cam.dataset.state = scanMachine.state;
+    publishState();
+  }
+  return result.ok;
+}
 function openCamera(fromAlbum) {
   if (st.kb) N.keyboard(false);
   document.activeElement?.blur?.();
+  scanTransition("request");
   st.awaitScan = true;
   if (fromAlbum) N.album(); else N.camera();
 }
 handlers.scanImage = d => {
+  if (!scanTransition("image")) return;
   st.awaitScan = false;
   document.activeElement?.blur?.(); N.keyboard(false);
   st.scan = { url: d.url, w: d.w, h: d.h, t0: Date.now(), hard: [], maybe: [], words: [], offline: false, done: false };
@@ -2774,15 +2883,17 @@ function placePhoto() {
   if (st.screen === "outer") Object.assign(res.style, { left: "0px", width: W + "px", top: box.y + box.h + "px", bottom: "0px", borderLeft: "0" });
   else Object.assign(res.style, { left: W - 380 + "px", width: "380px", top: top + "px", bottom: "0px", borderLeft: "0.5px solid var(--line)" });
 }
-handlers.scanCancel = () => { st.awaitScan = false; };
+handlers.scanCancel = () => { st.awaitScan = false; scanTransition("cancel"); };
 handlers.ocr = async r => {
   const s = st.scan; if (!s || !cam.classList.contains("on")) return;
   if (!r.ok) {
+    if (!scanTransition("error")) return;
     $("#res", cam).innerHTML = `<div class="res-head"><button class="back" data-c="cancel">${I.chev}查单词</button><span class="sp"></span></div>
       <div class="fail"><span style="font-size:17px">没有识别到文字</span><button class="pill primary" data-c="again" style="flex:none">重拍</button></div>`;
     return;
   }
   s.words = r.words; s.passage = r.passage;
+  if (!scanTransition("judge")) return;
   const line = $(".scanline", cam), h = $("#photo", cam).offsetHeight;
   const judging = judge(r.cands, r.passage);
   if (!reduced) await line.animate([{ top: "-70px", opacity: 1 }, { top: h - 70 + "px", opacity: 1, offset: .92 }, { top: h - 70 + "px", opacity: 0 }], { duration: 1150, easing: "cubic-bezier(.45,.05,.4,1)" }).finished;
@@ -2790,6 +2901,7 @@ handlers.ocr = async r => {
   await judging;
   if (st.scan !== s) return;
   s.done = true; s.ms = Date.now() - s.t0;
+  if (!scanTransition("results")) return;
   drawMarks();
   $$(".hw2", cam).forEach((x, i) => setTimeout(() => x.classList.add("lit"), i * 60));
   renderScanList();
@@ -2840,14 +2952,14 @@ function renderScanList() {
     <div class="scroll"><ul class="list">${hard.length ? hard.map(row).join("") : '<li class="empty">这一页没有生词</li>'}${st.more ? '<li><div class="sec-s" style="padding-left:0">可能认识</div></li>' + maybe.map((x, i) => row(x, i + hard.length)).join("") : ""}</ul>
     ${maybe.length ? `<button class="more" data-c="more">${st.more ? "收起" : `还有 ${maybe.length} 个可能认识的词`}</button>` : ""}</div>`;
 }
-function closeCam() { cam.classList.remove("on"); st.scan = null; }
+function closeCam() { scanTransition("cancel"); cam.classList.remove("on"); st.scan = null; }
 if (!CARD) {
   cam.addEventListener("click", e => {
     const c = e.target.closest("[data-c]");
     if (c) {
       const a = c.dataset.c;
       if (a === "cancel") closeCam();
-      else if (a === "again") { st.awaitScan = true; N.camera(); }
+      else if (a === "again") { scanTransition("request"); st.awaitScan = true; N.camera(); }
       else if (a === "more") { st.more = !st.more; renderScanList(); }
       return;
     }
@@ -2872,7 +2984,7 @@ async function setScreen(s) {
   if (s === st.screen) return;
   const anchor = R ? anchorOffset() : null;
   st.screen = s; fit();
-  if (sheet.classList.contains("on") && !CARD) closeSheet();
+  if (sheetOpen() && !CARD) closeSheet();
   if (!CARD) render(st.tab);
   if (R) { hideLookup(); layout(anchor); invalidatePages(); }
   if (KB.view === "read") kbRestoreRatio();
@@ -2899,7 +3011,7 @@ new ResizeObserver(() => {
 window.onBack = () => {
   if (CARD) { closeCard(); return true; }
   if (kbViewerOpen()) { kbCloseViewer(); return true; }
-  if (sheet.classList.contains("on")) { closeSheet(); return true; }
+  if (sheetOpen()) { closeSheet(); return true; }
   if (cam.classList.contains("on")) { closeCam(); return true; }
   if (R) {
     if (R.lk.classList.contains("on")) { hideLookup(); return true; }

@@ -293,3 +293,10 @@
 - 表格：tabular-nums、斑马行、表头/首列 sticky（修 Chromium sticky 偏移）、首列 nowrap、可横滑时右侧渐隐（到最右自动隐藏），窄屏可读性提升。
 - 体积：同步产物 23.19MB（HTML 21.29MB，双版 SVG +9.47MB；上一版 12.85MB）。App 首次同步从约 15MB 增至 23MB；后续增量仍只下变更文章。可后续给 Kb 加 gzip 传输（预计降到 2–4MB）。
 - 验证：模拟器 860×608/608×860/425×623；深浅主题 mermaid 即时切换、查看器取暗色版（fill #26282c）、超宽 3658px 查看器初始 1.0、代码复制 toast「已复制代码」、表格 sticky/渐隐/斑马行正常；`node --check` + gradle 全过；release 1.26/27。
+
+## M27 状态机清理与异步边界（未发布）
+- 盘点查词、书库、课程、阅读器、扫描、分享、查看器、更新和原生桥接中的隐式状态，记录在 `docs/state-machines.md`。
+- 新增无框架的 `state.js`：为主标签、底部卡片、课程视图/同步、阅读器、扫描和媒体查看器提供显式转移；页面暴露无敏感数据的 `window.__SHUBIAN_STATE__` 观察面，便于自动化和 Agent 判断当前状态。
+- 修复课程文章旧请求的错误分支覆盖新文章，以及设置页 Jev 测试在卡片关闭后回写 DOM 的竞态。
+- 兼容性：保留现有 `st`、`KB`、`R` 和 DOM class 作为渲染数据源；状态机只增加转移守卫和观察面，不改变原型尺寸、动画或桥接协议。
+- 验证：`node --check`、`git diff --check`、`./gradlew testDebugUnitTest lintDebug assembleRelease`。
