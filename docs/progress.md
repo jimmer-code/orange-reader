@@ -301,9 +301,10 @@
 - 兼容性：保留现有 `st`、`KB`、`R` 和 DOM class 作为渲染数据源；状态机只增加转移守卫和观察面，不改变原型尺寸、动画或桥接协议。
 - 验证：`node --check`、`git diff --check`、`./gradlew testDebugUnitTest lintDebug assembleRelease`。
 
-## M28 状态机补全与请求代数（未发布）
+## M28 状态机补全与请求代数（1.27/28）
 - 补齐此前仍由布尔值、DOM class 和回调时序隐式表达的流程：查词、EPUB 导入、阅读器打开/关闭与长按选区、课程文章加载、在线更新、书摘生成/分享。
 - `state.js` 新增无框架 `request()` 代数门；导入、扫描、更新、课程文章和书摘生成的异步结果必须匹配当前代数后才能更新界面。`window.__SHUBIAN_STATE__` 现在包含这些流程的状态和无敏感数字请求 ID，便于自动化和 Agent 观察。
 - 原生桥给文件选择、相机/相册、更新检查/下载的回调补上请求 ID；重拍、重试、重新检查或关闭卡片时，旧线程的结果会被丢弃。保留原有桥接动作和视觉结构，不改变规格或原型数值。
 - 偏差：仍使用现有 WebView + Java 实现（项目既有 M6 决策），没有引入 AndroidX、Compose、Material 或网络库。
 - 检查：`node --check app/src/main/assets/web/state.js`、`node --check app/src/main/assets/web/app.js`、`./gradlew testDebugUnitTest lintDebug assembleRelease`。
+- 发布：2026-11-09 通过 `tools/publish_update.sh` 发布到 `update.lemonation.cloud`；线上 `latest.json` 与本地 APK 大小（25,143,277 bytes）和 SHA-256（`4801578b7a908d59f56cd577aca5a38239eddb572363c7f52f50c4e7e53bde6f`）一致。
