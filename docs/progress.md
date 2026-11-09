@@ -308,3 +308,9 @@
 - 偏差：仍使用现有 WebView + Java 实现（项目既有 M6 决策），没有引入 AndroidX、Compose、Material 或网络库。
 - 检查：`node --check app/src/main/assets/web/state.js`、`node --check app/src/main/assets/web/app.js`、`./gradlew testDebugUnitTest lintDebug assembleRelease`。
 - 发布：2026-11-09 通过 `tools/publish_update.sh` 发布到 `update.lemonation.cloud`；线上 `latest.json` 与本地 APK 大小（25,143,277 bytes）和 SHA-256（`4801578b7a908d59f56cd577aca5a38239eddb572363c7f52f50c4e7e53bde6f`）一致。
+
+### M28 追加：课程列表滚动位置（未发布）
+- 修复课程导航的滚动状态：点击课程时，文章列表从顶部开始；返回课程总览或文章列表时，恢复用户离开前的滚动位置。
+- 原因是视图状态已经切换，但旧 DOM 仍在渲染函数里，旧页面的滚动值被写进了新页面的 key。现在按实际挂载的视图和课程记录/恢复滚动位置，折叠展开时也能沿用同一套逻辑。
+- 验证：`node --check app/src/main/assets/web/state.js`、`node --check app/src/main/assets/web/app.js`、`git diff --check`。
+- 偏差：无；未改课程数据、同步协议或视觉规格。

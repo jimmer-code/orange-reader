@@ -468,7 +468,7 @@ const KB = {
   prog: kv.get("kbprog", {}) || {}, seen: kv.get("kbseen", {}) || {},
   autoTried: false, mounted: "", fetched: {}, scroll: {}, userScrolled: false,
   full: false, chrome: true, lastY: 0, acc: 0, idleT: 0, suppress: false, barsOn: null,
-  ratio: 0, ratioT: 0, lastViewport: ""
+  ratio: 0, ratioT: 0, lastViewport: "", renderedView: null, renderedCourseId: ""
 };
 const kbViewMachine = State.machine("kb-view", "courses", {
   courses: { set: v => ["courses", "list", "read"].includes(v) ? v : null },
@@ -591,18 +591,23 @@ handlers.kbIndex = idx => {
 };
 
 /* ---------- 列表 ---------- */
-function kbListScrollEl() {
-  if (KB.view === "read") return null;
+function kbListScrollEl(view = KB.view) {
+  if (view === "read") return null;
   const v = $("#v-kb");
   if (!v) return null;
-  return st.screen === "inner" && KB.view !== "courses" ? $(".kb-col", v) : v;
+  // Use the container that is actually mounted. During a view/screen transition
+  // st.screen and KB.view already point at the destination while #v-kb still
+  // contains the previous view.
+  return view !== "courses" ? ($(".kb-col", v) || v) : v;
 }
-function kbScrollKey() { return KB.view + ":" + ((KB.course && KB.course.id) || ""); }
-function kbCaptureScroll() {
-  const el = kbListScrollEl(); if (el) KB.scroll[kbScrollKey()] = el.scrollTop;
+function kbScrollKey(view = KB.view, courseId = KB.course && KB.course.id) {
+  return view + ":" + (courseId || "");
 }
-function kbRestoreScroll() {
-  const el = kbListScrollEl(); if (el) el.scrollTop = KB.scroll[kbScrollKey()] || 0;
+function kbCaptureScroll(view = KB.view, courseId = KB.course && KB.course.id) {
+  const el = kbListScrollEl(view); if (el) KB.scroll[kbScrollKey(view, courseId)] = el.scrollTop;
+}
+function kbRestoreScroll(view = KB.view, courseId = KB.course && KB.course.id) {
+  const el = kbListScrollEl(view); if (el) el.scrollTop = KB.scroll[kbScrollKey(view, courseId)] || 0;
 }
 function kbEmptyHTML() {
   const err = KB.status === "error";
@@ -1267,10 +1272,14 @@ function kbBack() {
 }
 function renderKb() {
   const v = $("#v-kb"); if (!v) return;
-  kbCaptureScroll();
+  // Capture the scroll position from the view currently mounted in the DOM.
+  // KB.view may already have been changed by the click handler.
+  if (KB.renderedView) kbCaptureScroll(KB.renderedView, KB.renderedCourseId);
   if (!KB.index) kbLoadIndex();
   if (!KB.index || !KB.index.courses || !KB.index.courses.length) {
     v.innerHTML = kbEmptyHTML();
+    KB.renderedView = KB.view;
+    KB.renderedCourseId = (KB.course && KB.course.id) || "";
     if (!KB.autoTried && kbNeedsSync()) { KB.autoTried = true; kbSync(false); }
     return;
   }
@@ -1279,9 +1288,11 @@ function renderKb() {
   else { const layer = $("#kb-read"); if (layer) layer.hidden = true; }
   if (KB.view === "courses") v.innerHTML = kbCoursesHTML();
   else v.innerHTML = kbListHTML();
+  KB.renderedView = KB.view;
+  KB.renderedCourseId = (KB.course && KB.course.id) || "";
   if (KB.view === "read") { kbEnterRead(); kbRenderArticle(); }
   else kbExitRead();
-  kbRestoreScroll();
+  kbRestoreScroll(KB.view, KB.renderedCourseId);
   if (KB.view === "courses" && !KB.autoTried && kbNeedsSync()) { KB.autoTried = true; kbSync(false); }
 }
 
