@@ -43,5 +43,22 @@
     });
   }
 
-  root.ShuState = Object.freeze({ machine, gate });
+  // A gate is intentionally tiny: it gives every asynchronous flow a monotonic
+  // generation without making the rendering layer aware of promises or AbortController.
+  // A result may update the UI only while its generation is current.
+  function request(name) {
+    let serial = 0;
+    let active = 0;
+    let currentValue;
+    return Object.freeze({
+      get current() { return active; },
+      get value() { return currentValue; },
+      begin(value) { active = ++serial; currentValue = value === undefined ? active : value; return { id: active, value: currentValue }; },
+      cancel() { active = ++serial; currentValue = undefined; return active; },
+      isCurrent(value) { return !!value && (typeof value === "object" ? value.id : value) === active; },
+      snapshot() { return { name, id: active }; }
+    });
+  }
+
+  root.ShuState = Object.freeze({ machine, gate, request });
 }(window));

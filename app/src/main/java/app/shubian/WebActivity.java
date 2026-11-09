@@ -74,6 +74,8 @@ public abstract class WebActivity extends Activity {
     private volatile boolean dead;
     private volatile String ttsPending;
     private boolean pageReady;
+    private volatile String pendingImportKey;
+    private volatile String pendingScanKey;
     private String insetsJs;
     protected long createdAt;
 
@@ -249,7 +251,10 @@ public abstract class WebActivity extends Activity {
 
     // ---------- activity results ----------
 
-    void startCamera() {
+    void startCamera() { startCamera(null); }
+
+    void startCamera(String requestKey) {
+        pendingScanKey = requestKey;
         Intent i = new Intent(MediaStore.ACTION_IMAGE_CAPTURE).putExtra(MediaStore.EXTRA_OUTPUT, ImageProvider.CAPTURE)
                 .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
         i.setClipData(ClipData.newRawUri("", ImageProvider.CAPTURE));
@@ -258,46 +263,60 @@ public abstract class WebActivity extends Activity {
 
     @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
-        if (res != RESULT_OK) { if (req != REQ_IMPORT) emit("scanCancel", "0"); return; }
+        if (res != RESULT_OK) {
+            if (req == REQ_IMPORT) emit("import", jsonQuiet("state", "cancel", "key", pendingImportKey == null ? "" : pendingImportKey));
+            else emit("scanCancel", jsonQuiet("id", pendingScanKey == null ? "" : pendingScanKey));
+            if (req == REQ_IMPORT) pendingImportKey = null; else pendingScanKey = null;
+            return;
+        }
         if (req == REQ_IMPORT && data != null) {
-            if (data.getClipData() != null) for (int i = 0; i < data.getClipData().getItemCount(); i++) importBook(data.getClipData().getItemAt(i).getUri());
-            else if (data.getData() != null) importBook(data.getData());
+            String key = pendingImportKey;
+            if (data.getClipData() != null) for (int i = 0; i < data.getClipData().getItemCount(); i++) importBook(data.getClipData().getItemAt(i).getUri(), key);
+            else if (data.getData() != null) importBook(data.getData(), key);
+            pendingImportKey = null;
         } else if (req == REQ_CAMERA) {
-            scan(ImageProvider.CAPTURE);
+            scan(ImageProvider.CAPTURE, pendingScanKey);
+            pendingScanKey = null;
         } else if (req == REQ_ALBUM && data != null && data.getData() != null) {
-            scan(data.getData());
+            scan(data.getData(), pendingScanKey);
+            pendingScanKey = null;
         }
     }
 
     void importBook(Uri uri) {
-        String key = String.valueOf(System.nanoTime());
+        importBook(uri, "external-" + System.nanoTime());
+    }
+
+    void importBook(Uri uri, String key) {
+        if (key == null || key.isEmpty()) key = "external-" + System.nanoTime();
+        final String requestKey = key;
         io.execute(() -> {
             try {
                 String id = Epub.copyIn(this, uri);
                 JSONObject meta = Epub.parse(this, id);
-                emit("import", new JSONObject().put("state", "done").put("key", key).put("book", meta));
+                emit("import", new JSONObject().put("state", "done").put("key", requestKey).put("book", meta));
             } catch (Epub.Rejected r) {
                 String msg = r.getMessage().startsWith("dup:") ? "已在书库" : r.getMessage();
-                emit("import", jsonQuiet("state", "error", "msg", msg));
+                emit("import", jsonQuiet("state", "error", "msg", msg, "key", requestKey));
             } catch (Exception e) {
                 Log.w("Shubian", "import failed", e);
-                emit("import", jsonQuiet("state", "error", "msg", "无法读取这本书"));
+                emit("import", jsonQuiet("state", "error", "msg", "无法读取这本书", "key", requestKey));
             }
         });
     }
 
-    private void scan(Uri uri) {
+    private void scan(Uri uri, String requestKey) {
         io.execute(() -> {
             try {
                 File out = new File(Scan.dir(this), "page-" + System.currentTimeMillis() + ".jpg");
                 File[] old = Scan.dir(this).listFiles((d, n) -> n.startsWith("page-"));
                 if (old != null) for (File f : old) f.delete();
                 android.graphics.Bitmap bmp = Scan.prepare(this, uri, out);
-                emit("scanImage", new JSONObject().put("url", "/scan/" + out.getName()).put("w", bmp.getWidth()).put("h", bmp.getHeight()));
-                Scan.recognize(this, bmp, known(), r -> emit("ocr", r));
+                emit("scanImage", new JSONObject().put("id", requestKey == null ? "" : requestKey).put("url", "/scan/" + out.getName()).put("w", bmp.getWidth()).put("h", bmp.getHeight()));
+                Scan.recognize(this, bmp, known(), r -> { try { r.put("id", requestKey == null ? "" : requestKey); } catch (Exception ignored) { } emit("ocr", r); });
             } catch (Exception e) {
                 Log.w("Shubian", "scan failed", e);
-                emit("ocr", jsonQuiet("ok", "false"));
+                emit("ocr", jsonQuiet("ok", "false", "id", requestKey == null ? "" : requestKey));
             }
         });
     }
@@ -361,12 +380,14 @@ public abstract class WebActivity extends Activity {
                 Epub.delete(WebActivity.this, id);
             });
         }
-        @JavascriptInterface public void importBooks() {
+        @JavascriptInterface public void importBooks(String requestKey) {
+            pendingImportKey = requestKey;
             main.post(() -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
                     .setType("application/epub+zip").putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true), REQ_IMPORT));
         }
-        @JavascriptInterface public void camera() { main.post(WebActivity.this::startCamera); }
-        @JavascriptInterface public void album() {
+        @JavascriptInterface public void camera(String requestKey) { main.post(() -> startCamera(requestKey)); }
+        @JavascriptInterface public void album(String requestKey) {
+            pendingScanKey = requestKey;
             main.post(() -> startActivityForResult(new Intent(MediaStore.ACTION_PICK_IMAGES).setType("image/*"), REQ_ALBUM));
         }
         @JavascriptInterface public void keyboard(boolean show) {
@@ -422,30 +443,32 @@ public abstract class WebActivity extends Activity {
                 return Build.VERSION.SDK_INT >= 28 ? p.getLongVersionCode() : p.versionCode;
             } catch (Exception e) { return 0; }
         }
-        @JavascriptInterface public void checkUpdate() {
+        @JavascriptInterface public void checkUpdate(String requestKey) {
             net.execute(() -> {
                 try {
                     JSONObject m = AppUpdater.check(versionCode());
+                    m.put("id", requestKey == null ? "" : requestKey);
                     latestUpdate.set(m);
                     emit("update", m);
                 } catch (Exception e) {
-                    emit("update", jsonQuiet("state", "error", "msg", e.getMessage() == null ? "检查更新失败" : e.getMessage()));
+                    emit("update", jsonQuiet("state", "error", "id", requestKey == null ? "" : requestKey, "msg", e.getMessage() == null ? "检查更新失败" : e.getMessage()));
                 }
             });
         }
-        @JavascriptInterface public void installUpdate() {
+        @JavascriptInterface public void installUpdate(String requestKey) {
             JSONObject manifest = latestUpdate.get();
-            if (manifest == null || !"available".equals(manifest.optString("state"))) { checkUpdate(); return; }
+            if (manifest == null || !"available".equals(manifest.optString("state"))) { checkUpdate(requestKey); return; }
             net.execute(() -> {
                 try {
-                    emit("update", jsonQuiet("state", "downloading", "percent", "0"));
+                    String key = requestKey == null ? "" : requestKey;
+                    emit("update", jsonQuiet("state", "downloading", "id", key, "percent", "0"));
                     File apk = AppUpdater.download(WebActivity.this, manifest, (done, total) -> {
                         int percent = total > 0 ? (int) Math.min(99, done * 100 / total) : 0;
-                        emit("update", jsonQuiet("state", "downloading", "percent", String.valueOf(percent)));
+                        emit("update", jsonQuiet("state", "downloading", "id", key, "percent", String.valueOf(percent)));
                     });
-                    main.post(() -> startUpdateInstaller(apk));
+                    main.post(() -> startUpdateInstaller(apk, key));
                 } catch (Exception e) {
-                    emit("update", jsonQuiet("state", "error", "msg", e.getMessage() == null ? "下载更新失败" : e.getMessage()));
+                    emit("update", jsonQuiet("state", "error", "id", requestKey == null ? "" : requestKey, "msg", e.getMessage() == null ? "下载更新失败" : e.getMessage()));
                 }
             });
         }
@@ -542,14 +565,15 @@ public abstract class WebActivity extends Activity {
         }
     }
 
-    private void startUpdateInstaller(File apk) {
+    private void startUpdateInstaller(File apk, String requestKey) {
+        String key = requestKey == null ? "" : requestKey;
         if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
             try {
                 startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                         Uri.parse("package:" + getPackageName())));
-                emit("update", jsonQuiet("state", "permission", "msg", "请允许安装未知应用后，再点一次更新"));
+                emit("update", jsonQuiet("state", "permission", "id", key, "msg", "请允许安装未知应用后，再点一次更新"));
             } catch (Exception e) {
-                emit("update", jsonQuiet("state", "error", "msg", "系统不允许安装更新"));
+                emit("update", jsonQuiet("state", "error", "id", key, "msg", "系统不允许安装更新"));
             }
             return;
         }
@@ -558,9 +582,9 @@ public abstract class WebActivity extends Activity {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try {
             startActivity(i);
-            emit("update", jsonQuiet("state", "ready", "msg", "正在打开安装器"));
+            emit("update", jsonQuiet("state", "ready", "id", key, "msg", "正在打开安装器"));
         } catch (Exception e) {
-            emit("update", jsonQuiet("state", "error", "msg", "找不到系统安装器"));
+            emit("update", jsonQuiet("state", "error", "id", key, "msg", "找不到系统安装器"));
         }
     }
 }

@@ -29,6 +29,52 @@ const tabMachine = State.machine("tab", "physical", {
   kb: { set: v => ["physical", "library", "kb", "words"].includes(v) ? v : null },
   words: { set: v => ["physical", "library", "kb", "words"].includes(v) ? v : null }
 });
+const lookupMachine = State.machine("lookup", "idle", {
+  idle: { query: v => v ? "querying" : "idle", select: "selected", clear: "idle" },
+  querying: { query: v => v ? "querying" : "idle", select: "selected", clear: "idle" },
+  selected: { query: v => v ? "querying" : "idle", select: "selected", clear: "idle" }
+});
+const sheetGestureMachine = State.machine("sheet-gesture", "idle", {
+  idle: { start: "dragging" },
+  dragging: { move: "dragging", release: "idle", cancel: "idle" }
+});
+const wordsGestureMachine = State.machine("words-gesture", "idle", {
+  idle: { press: "pressed" },
+  pressed: { swipe: "swiping", release: "idle", cancel: "idle" },
+  swiping: { move: "swiping", remove: "removing", release: "idle", cancel: "idle" },
+  removing: { done: "idle" }
+});
+const viewerGestureMachine = State.machine("viewer-gesture", "idle", {
+  idle: { press: "pressed" },
+  pressed: { move: "moving", pinch: "pinching", release: "idle", cancel: "idle" },
+  moving: { move: "moving", pinch: "pinching", release: "idle", cancel: "idle" },
+  pinching: { pinch: "pinching", release: "idle", cancel: "idle" }
+});
+const importMachine = State.machine("import", "idle", {
+  idle: { choose: "selecting", start: "importing", done: "idle", fail: "error" },
+  selecting: { start: "importing", cancel: "idle", fail: "error" },
+  importing: { start: "importing", done: "idle", fail: "error", cancel: "idle" },
+  error: { choose: "selecting", start: "importing", done: "idle" }
+});
+const importRequest = State.request("import");
+const updateMachine = State.machine("update", "idle", {
+  idle: { check: "checking" },
+  checking: { check: "checking", available: "available", current: "idle", error: "error" },
+  available: { check: "checking", download: "downloading", error: "error" },
+  downloading: { download: "downloading", ready: "ready", permission: "permission", error: "error" },
+  permission: { check: "checking", download: "downloading", error: "error" },
+  ready: { check: "checking" },
+  error: { check: "checking" }
+});
+const updateRequest = State.request("update");
+const excerptMachine = State.machine("excerpt", "idle", {
+  idle: { generate: "generating", open: "preview", cancel: "idle" },
+  generating: { generate: "generating", open: "preview", error: "error", cancel: "idle" },
+  preview: { generate: "generating", share: "sharing", cancel: "idle" },
+  sharing: { open: "preview", error: "error", cancel: "idle" },
+  error: { generate: "generating", cancel: "idle" }
+});
+const excerptRequest = State.request("excerpt");
 const saved = new Map(kv.get("saved", []));      // lemma → { src, type, t, book, pos, sentence, sense, word }
 const savedPhrases = new Map(kv.get("savedPhrases", []));
 const savedQuotes = new Map(kv.get("savedQuotes", []));
@@ -131,15 +177,20 @@ function speak(t) { N.speak(t); }
 /* ---------- Jev ---------- */
 let jevSeq = 0;
 const jevWait = {};
+const asyncRequestMachine = (name, id) => State.machine(`${name}-${id}`, "idle", {
+  idle: { start: "waiting" },
+  waiting: { delta: "waiting", resolve: "success", reject: "failure", timeout: "expired" },
+  success: {}, failure: {}, expired: {}
+});
 handlers.jev = d => {
   const w = jevWait[d.id]; if (!w) return; delete jevWait[d.id];
   const status = +d.status;
-  if (status !== 200) { w.rej(new Error(status ? "Jev 返回 " + status : "网络不可用")); return; }
-  try { w.res(JSON.parse(d.body).answers || {}); } catch (e) { w.rej(e); }
+  if (status !== 200) { w.machine.transition("reject"); w.rej(new Error(status ? "Jev 返回 " + status : "网络不可用")); return; }
+  try { w.machine.transition("resolve"); w.res(JSON.parse(d.body).answers || {}); } catch (e) { w.machine.transition("reject"); w.rej(e); }
 };
 function jevAsk(passage, questions) {
   return new Promise((res, rej) => {
-    const id = ++jevSeq; jevWait[id] = { res, rej };
+    const id = ++jevSeq, machine = asyncRequestMachine("jev", id); machine.transition("start"); jevWait[id] = { res, rej, machine };
     N.jev(id, JSON.stringify({ model: "jev-latest", state: { reader: settings.level, passage }, questions }));
   });
 }
@@ -154,17 +205,24 @@ function senseQuestion(word, items) {
 /* ---------- 整句翻译、问 AI ---------- */
 let trSeq = 0;
 const trWait = {};
-handlers.tr = d => { const f = trWait[d.id]; if (f) f(d); if (d.done || d.error) delete trWait[d.id]; };
+handlers.tr = d => {
+  const f = trWait[d.id]; if (!f) return;
+  if (d.delta) f.machine.transition("delta");
+  f(d);
+  if (d.done || d.error) { f.machine.transition(d.done ? "resolve" : "reject"); delete trWait[d.id]; }
+};
 const trCache = new Map();
 function streamTr(text, ask, target) {
   if (!ask && trCache.has(text)) { target.textContent = trCache.get(text); return; }
   const id = ++trSeq; let out = "";
   target.textContent = "…";
-  trWait[id] = d => {
+  const machine = asyncRequestMachine("translate", id); machine.transition("start");
+  const fn = d => {
     if (d.delta) { out += d.delta; target.textContent = out; }
     if (d.done && !ask) trCache.set(text, out);
     if (d.error) target.textContent = out || d.error;
   };
+  fn.machine = machine; trWait[id] = fn;
   N.translate(id, text, ask);
 }
 // 书名和所在段落给模型理解指代和语境，只翻 <text> 里的部分
@@ -210,11 +268,27 @@ const sheetOpen = () => sheetMachine.is("open");
 const publishState = () => {
   const snapshot = {
     tab: tabMachine.state,
+    lookup: lookupMachine.state,
+    sheetGesture: sheetGestureMachine.state,
+    wordsGesture: wordsGestureMachine.state,
+    import: importMachine.state,
     sheet: sheetMachine.state,
     kb: typeof KB !== "undefined" ? { view: KB.view, sync: KB.status } : null,
+    kbArticle: typeof KB !== "undefined" ? KB.articleState : null,
     scan: scanMachine.state,
     reader: readerMachine.state,
-    viewer: typeof KBV !== "undefined" && KBV.open ? "open" : "closed"
+    readerGesture: readerGestureMachine.state,
+    update: updateMachine.state,
+    excerpt: excerptMachine.state,
+    viewer: typeof viewerMachine !== "undefined" ? viewerMachine.state : "closed",
+    viewerGesture: viewerGestureMachine.state,
+    requests: {
+      import: importRequest.current,
+      scan: scanRequest.current,
+      update: updateRequest.current,
+      article: kbArticleRequest.current,
+      excerpt: excerptRequest.current
+    }
   };
   document.documentElement.dataset.shubianState = JSON.stringify(snapshot);
   window.__SHUBIAN_STATE__ = snapshot;
@@ -266,15 +340,17 @@ scrim.addEventListener("click", closeSheet);
   sheet.addEventListener("pointerdown", e => {
     const body = e.target.closest(".sh-body");
     if (e.target.closest("input, textarea, button") || (body && body.scrollTop > 0)) return;
+    sheetGestureMachine.reset(); sheetGestureMachine.transition("start"); publishState();
     y0 = e.clientY; dy = 0;
   });
   sheet.addEventListener("pointermove", e => {
     if (y0 == null) return;
     dy = Math.max(0, e.clientY - y0);
-    if (dy > 6) { sheet.style.transition = "none"; sheet.style.transform = `translateY(${dy}px)`; }
+    if (dy > 6) { sheetGestureMachine.transition("move"); sheet.style.transition = "none"; sheet.style.transform = `translateY(${dy}px)`; }
   });
   const end = () => {
     if (y0 == null) return; y0 = null;
+    sheetGestureMachine.transition("release"); publishState();
     sheet.style.transition = ""; sheet.style.transform = "";
     if (dy > 90) closeSheet();
   };
@@ -287,6 +363,7 @@ function setTab(tab, focus = true) {
   const changed = tabMachine.transition("set", tab);
   if (!changed.ok) return;
   st.tab = tab; st.pick = null;
+  lookupMachine.transition("clear");
   $$(".nav button[data-tab]").forEach(b => b.setAttribute("aria-current", b.dataset.tab === tab));
   $$(".view").forEach(v => { const on = v.id === "v-" + tab; v.hidden = !on; if (on) { v.classList.remove("enter"); void v.offsetWidth; v.classList.add("enter"); } });
   render(tab);
@@ -346,9 +423,17 @@ if (!CARD) {
   lib.addEventListener("click", e => {
     if (longed) { longed = false; return; }
     const f = e.target.closest("[data-filter]"); if (f) { st.filter = f.dataset.filter; renderLibrary(); return; }
-    if (e.target.closest('[data-act="import"]')) { N.importBooks(); return; }
+    if (e.target.closest('[data-act="import"]')) { chooseImport(); return; }
     const o = e.target.closest("[data-open]"); if (o && !o.classList.contains("importing")) openBook(o.dataset.open, o.querySelector(".cover"));
   });
+}
+function chooseImport() {
+  if (importMachine.is("selecting") || importMachine.is("importing")) return;
+  const req = importRequest.begin();
+  if (!importMachine.transition("choose").ok) return;
+  try { N.importBooks(String(req.id)); }
+  catch (e) { importRequest.cancel(); importMachine.transition("fail"); renderLibrary(); toast("无法打开文件选择器"); }
+  publishState();
 }
 function bookMenu(id) {
   const b = BOOKS.find(x => x.id === id); if (!b) return;
@@ -358,13 +443,20 @@ function bookMenu(id) {
   sheet.dataset.book = id;
 }
 handlers.import = d => {
-  if (d.state === "error") { toast(d.msg); return; }
+  d = d || {};
+  if (d.key != null && (importMachine.is("selecting") || importMachine.is("importing")) && importRequest.value != null && String(d.key) !== String(importRequest.value)) return;
+  if (d.state === "cancel") { importRequest.cancel(); importMachine.transition("cancel"); publishState(); return; }
+  if (importMachine.is("idle")) importMachine.transition("start");
+  if (d.state === "error") { importMachine.transition("fail"); toast(d.msg); publishState(); return; }
+  importMachine.transition("start");
   const b = Object.assign(d.book, { importing: true });
   BOOKS = [b, ...BOOKS.filter(x => x.id !== b.id)];
   st.filter = "all";
   if (st.tab !== "library") setTab("library", false); else renderLibrary();
   $("#v-library").scrollTo({ top: 0, behavior: "smooth" });
+  importMachine.transition("done");
   setTimeout(() => { b.importing = false; if (st.tab === "library" && !st.book) renderLibrary(); toast(`已导入《${b.title}》`); }, reduced ? 0 : 1100);
+  publishState();
 };
 
 /* ===================== 课程 / 知识库 =====================
@@ -372,7 +464,7 @@ handlers.import = d => {
    docs/notion-kb-contract.md。状态放在独立的 KB 对象里（st.kb 是键盘标志，别混）。 */
 const KB = {
   view: "courses", course: null, article: null, index: null,
-  status: "idle", lastSync: 0, errMsg: "", syncDone: 0, syncTotal: 0,
+  status: "idle", articleState: "idle", lastSync: 0, errMsg: "", syncDone: 0, syncTotal: 0,
   prog: kv.get("kbprog", {}) || {}, seen: kv.get("kbseen", {}) || {},
   autoTried: false, mounted: "", fetched: {}, scroll: {}, userScrolled: false,
   full: false, chrome: true, lastY: 0, acc: 0, idleT: 0, suppress: false, barsOn: null,
@@ -388,6 +480,13 @@ const kbSyncMachine = State.machine("kb-sync", "idle", {
   syncing: { progress: "syncing", done: "idle", fail: "error", start: "syncing" },
   error: { start: "syncing", progress: "syncing", done: "idle", fail: "error" }
 });
+const kbArticleMachine = State.machine("kb-article", "idle", {
+  idle: { load: "loading", cancel: "idle" },
+  loading: { load: "loading", ready: "ready", error: "error", cancel: "idle" },
+  ready: { load: "loading", cancel: "idle" },
+  error: { load: "loading", cancel: "idle" }
+});
+const kbArticleRequest = State.request("kb-article");
 const KB_STALE = 6 * 3600e3;
 const kbSave = () => { kv.set("kbprog", KB.prog); kv.set("kbseen", KB.seen); kv.set("kblast", KB.lastSync); };
 function kbSetView(view) {
@@ -403,6 +502,13 @@ function kbSetSync(event, msg = "") {
   KB.status = kbSyncMachine.state;
   if (event === "fail") KB.errMsg = msg || "同步失败";
   else if (event === "start") KB.errMsg = "";
+  publishState();
+  return true;
+}
+function kbSetArticle(event) {
+  const result = kbArticleMachine.transition(event);
+  if (!result.ok) return false;
+  KB.articleState = kbArticleMachine.state;
   publishState();
   return true;
 }
@@ -659,6 +765,8 @@ function kbRenderArticle(force) {
   const { c, a } = pair;
   const key = c.id + "/" + a.id + "/" + (a.updated || "");
   if (!force && KB.mounted === key && $(".art-doc", host)) return;
+  const req = kbArticleRequest.begin(key);
+  if (!kbSetArticle("load")) return;
   KB.mounted = key;
   host.innerHTML = `<div class="art" data-theme="${esc(st.theme)}" data-font="${esc(st.font)}" lang="zh-CN"><div class="art-doc"></div><div class="kb-loading"><span class="ring"></span></div></div>`;
   const art = $(".art", host);
@@ -666,19 +774,24 @@ function kbRenderArticle(force) {
   kbBindScroll(host);
   const url = `/kb/a/${encodeURIComponent(c.id)}/${encodeURIComponent(a.id)}.html`;
   kbGetArticle(url).then(html => {
-    if (KB.mounted !== key) return;
+    if (KB.mounted !== key || !kbArticleRequest.isCurrent(req)) return;
     const doc = $(".art-doc", host); if (!doc) return;
     doc.innerHTML = html;
     kbPrepArticle(doc);
     kbMarkSeen(a);
     kbRestoreArticle(host, a);
     kbUpdateProg(host);
+    kbSetArticle("ready");
   }).catch(err => {
-    if (KB.mounted !== key) return;
+    if (KB.mounted !== key || !kbArticleRequest.isCurrent(req)) return;
     const doc = $(".art-doc", host); if (!doc) return;
     const msg = err && err.message ? err.message : "";
     doc.innerHTML = `<div class="kb-err"><p>这篇还没下载好</p>${msg ? `<p class="note">${esc(msg)}</p>` : ""}<button class="pill primary" data-kb="retry-art">重试</button></div>`;
-  }).finally(() => { const l = $(".kb-loading", host); if (l) l.remove(); });
+    kbSetArticle("error");
+  }).finally(() => {
+    if (!kbArticleRequest.isCurrent(req) || KB.mounted !== key) return;
+    const l = $(".kb-loading", host); if (l) l.remove();
+  });
 }
 function kbGetArticle(url) {
   if (!KB.fetched[url]) {
@@ -926,12 +1039,13 @@ function kbViewer() {
   return v;
 }
 function kbvMediaEl() { return $("#kb-viewer .kbv-media"); }
-function kbViewerOpen() { const v = $("#kb-viewer"); return !!(v && v.classList.contains("on")); }
+function kbViewerOpen() { return viewerMachine.is("open"); }
 function kbCloseViewer() {
   const v = $("#kb-viewer"); if (!v) return;
   if (!viewerMachine.transition("close").ok) return;
   v.classList.remove("on");
   KBV.open = false; KBV.pointers.clear(); KBV.moved = false;
+  viewerGestureMachine.reset();
   const media = kbvMediaEl(); if (media) media.innerHTML = "";
   publishState();
 }
@@ -995,6 +1109,7 @@ function kbvBind(v) {
   let drag = null;
   stage.addEventListener("pointerdown", e => {
     if (!KBV.open) return;
+    if (ids.size === 0) { viewerGestureMachine.reset(); viewerGestureMachine.transition("press"); publishState(); }
     ids.set(e.pointerId, { x: e.clientX, y: e.clientY });
     // 不做 pointer capture：capture 会把后续 click 的 target 改成 stage，导致点图被误判成点空白
     if (ids.size === 1) {
@@ -1003,6 +1118,7 @@ function kbvBind(v) {
     } else if (ids.size === 2) {
       const [a, b] = [...ids.values()];
       KBV.pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: KBV.z };
+      viewerGestureMachine.transition("pinch"); publishState();
       drag = null; KBV.moved = true;
     }
   });
@@ -1010,6 +1126,7 @@ function kbvBind(v) {
     if (!KBV.open || !ids.has(e.pointerId)) return;
     ids.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ids.size >= 2 && KBV.pinch) {
+      viewerGestureMachine.transition("pinch");
       const [a, b] = [...ids.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
       kbvZoomAt(KBV.pinch.z0 * (d / KBV.pinch.d0), (a.x + b.x) / 2, (a.y + b.y) / 2);
@@ -1018,12 +1135,14 @@ function kbvBind(v) {
     if (drag) {
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 4) { drag.moved = true; KBV.moved = true; }
+      if (drag.moved) viewerGestureMachine.transition("move");
       if (drag.moved) { KBV.tx = drag.tx + dx; KBV.ty = drag.ty + dy; kbvApply(); }
     }
   });
   const up = e => {
     ids.delete(e.pointerId);
     if (ids.size === 0) {
+      viewerGestureMachine.transition("release"); publishState();
       const wasMoved = KBV.moved || (drag && drag.moved);
       if (!wasMoved && drag) {
         const now = Date.now();
@@ -1125,6 +1244,7 @@ function kbOpenCourse(courseId) {
   if (!c) return;
   kbvCloseIfOpen();
   if (KB.view === "read") kbSaveArticle(kbArticleHost());
+  kbArticleRequest.cancel(); kbSetArticle("cancel");
   KB.course = c; KB.article = null; kbSetView("list"); KB.mounted = "";
   KB.scroll["list:" + c.id] = 0;
   kbExitRead();
@@ -1134,6 +1254,7 @@ function kbOpenCourse(courseId) {
 function kbLeaveRead() {
   kbvCloseIfOpen();
   if (KB.view === "read") kbSaveArticle(kbArticleHost());
+  kbArticleRequest.cancel(); kbSetArticle("cancel");
   kbSetView(KB.course ? "list" : "courses");
   KB.article = null; KB.mounted = "";
   kbExitRead();
@@ -1269,14 +1390,16 @@ function renderResults() {
 function setQuery(q) {
   const v = $("#v-physical"), box = $(".qbox", v), before = box.getBoundingClientRect();
   st.query = q;
+  lookupMachine.transition(q.trim() ? "query" : "clear", q.trim());
   const home = lookupHome();
   if (v.classList.contains("home") !== home) { v.classList.toggle("home", home); flipBox(before); }
   renderResults();
 }
-function clearQuery() { st.query = ""; st.pick = null; renderPhysical(); $("#q").focus({ preventScroll: true }); N.keyboard(true); }
+function clearQuery() { st.query = ""; st.pick = null; lookupMachine.transition("clear"); renderPhysical(); $("#q").focus({ preventScroll: true }); N.keyboard(true); }
 function pickWord(k) {
   const i = recents.indexOf(k); if (i >= 0) recents.splice(i, 1);
   recents.unshift(k); recents.length = Math.min(recents.length, 50); kv.set("recents", recents);
+  lookupMachine.transition("select");
   showWord(k, "查单词");
 }
 if (!CARD) {
@@ -1330,21 +1453,26 @@ function exportCsv() {
 if (!CARD) {
   const wv = $("#v-words");
   let sw = null, swiped = false;
-  wv.addEventListener("pointerdown", e => { const li = e.target.closest("li[data-li]"); swiped = false; sw = li ? { li, x: e.clientX, y: e.clientY, dx: 0 } : null; });
+  wv.addEventListener("pointerdown", e => {
+    const li = e.target.closest("li[data-li]"); swiped = false;
+    sw = li ? { li, x: e.clientX, y: e.clientY, dx: 0 } : null;
+    if (sw) { wordsGestureMachine.reset(); wordsGestureMachine.transition("press"); publishState(); }
+  });
   wv.addEventListener("pointermove", e => {
     if (!sw) return;
     const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
-    if (!sw.on && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5 && dx < 0) { sw.on = true; sw.li.classList.add("swiping"); }
-    if (sw.on) { sw.dx = Math.min(0, dx); sw.li.firstElementChild.style.transform = `translateX(${sw.dx}px)`; }
+    if (!sw.on && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5 && dx < 0) { sw.on = true; wordsGestureMachine.transition("swipe"); sw.li.classList.add("swiping"); publishState(); }
+    if (sw.on) { wordsGestureMachine.transition("move"); sw.dx = Math.min(0, dx); sw.li.firstElementChild.style.transform = `translateX(${sw.dx}px)`; }
   });
   const end = () => {
-    if (!sw || !sw.on) { sw = null; return; }
+    if (!sw || !sw.on) { wordsGestureMachine.transition("cancel"); publishState(); sw = null; return; }
     const { li, dx } = sw; sw = null; swiped = true;
     li.classList.remove("swiping"); li.firstElementChild.style.transform = "";
     if (dx < -90) {
+      wordsGestureMachine.transition("remove"); publishState();
       const w = li.dataset.li; li.classList.add("del");
-      setTimeout(() => { saved.delete(w); saveSaved(); if (st.pick === w) st.pick = null; renderWords(); toast(`已删除 ${w}`); }, 240);
-    }
+      setTimeout(() => { saved.delete(w); saveSaved(); if (st.pick === w) st.pick = null; renderWords(); toast(`已删除 ${w}`); wordsGestureMachine.transition("done"); publishState(); }, 240);
+    } else { wordsGestureMachine.transition("release"); publishState(); }
   };
   wv.addEventListener("pointerup", end); wv.addEventListener("pointercancel", end);
   wv.addEventListener("click", e => {
@@ -1401,9 +1529,9 @@ function renderPane(pane, word, emptyText) {
 }
 function showWord(word, src) {
   const info = lookupWord(word);
-  st.pick = info.lemma; st.pickSrc = src;
+  st.pick = info.lemma; st.pickSrc = src; lookupMachine.transition("select");
   if (st.screen === "inner") { render(st.tab); return; }
-  openSheet(`<div class="sh-body">${wordHTML(info, { close: true })}</div>`, "lk-card", () => { st.pick = null; });
+  openSheet(`<div class="sh-body">${wordHTML(info, { close: true })}</div>`, "lk-card", () => { st.pick = null; lookupMachine.transition("clear"); publishState(); });
 }
 function toggleSave(lemma, src, btn, extra = {}) {
   if (saved.has(lemma)) saved.delete(lemma);
@@ -1431,7 +1559,13 @@ scr.addEventListener("click", e => {
     return;
   }
   if (e.target.closest("[data-ex-cancel]")) { closeSheet(); return; }
-  if (e.target.closest("#ex-share") && excerptState) { if (excerptState.dataUrl) N.shareCard(excerptState.dataUrl); return; }
+  if (e.target.closest("#ex-share") && excerptState) {
+    if (excerptState.dataUrl && excerptMachine.transition("share").ok) {
+      N.shareCard(excerptState.dataUrl);
+      excerptMachine.transition("open"); publishState();
+    }
+    return;
+  }
   if (e.target.closest("[data-trs]") && R) { const hl = $(".w.hl", R.flow); translateInBook(st.lkSentence, rectIn(hl || R.lk), null, hl && blockText(hl)); return; }
   const v = e.target.closest("[data-save]");
   if (v) {
@@ -1446,10 +1580,19 @@ scr.addEventListener("click", e => {
 /* ===================== 阅读器 ===================== */
 let R = null;
 const readerMachine = State.machine("reader", "closed", {
-  closed: { open: "ready" },
+  closed: { open: "opening" },
+  opening: { ready: "ready", error: "error", close: "closing" },
   ready: { turn: "turning", close: "closing" },
   turning: { turn: "turning", ready: "ready" },
-  closing: { closed: "closed" }
+  closing: { closed: "closed" },
+  error: { closed: "closed", open: "opening" }
+});
+const readerGestureMachine = State.machine("reader-gesture", "idle", {
+  idle: { press: "pressed" },
+  pressed: { feedback: "feedback", lock: "locked", move: "pressed", cancel: "idle", release: "idle" },
+  feedback: { lock: "locked", move: "feedback", cancel: "idle", release: "idle" },
+  locked: { select: "selecting", move: "locked", cancel: "idle", release: "idle" },
+  selecting: { move: "selecting", cancel: "idle", release: "idle" }
 });
 const bookUrl = (id, path) => `/book/${id}/${path.split("/").map(encodeURIComponent).join("/")}`;
 /* ---------- 原书样式：参照 ReadiumCSS 的做法，保留原书的版式（对齐、缩进、小型大写、间距、图片宽度），
@@ -1637,7 +1780,7 @@ function fragPagesOf(flow, ch) {
   return out;
 }
 async function openBook(id, coverEl) {
-  const b = BOOKS.find(x => x.id === id); if (!b || st.busy) return;
+  const b = BOOKS.find(x => x.id === id); if (!b || st.busy || !readerMachine.is("closed")) return;
   if (!readerMachine.transition("open").ok) return;
   clearTurnQueue();
   const t0 = performance.now();
@@ -1673,11 +1816,23 @@ async function openBook(id, coverEl) {
   bindReader();
   if (coverEl && !reduced) zoomFromCover(coverEl, r);
   else r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: "ease-out" });
-  await document.fonts.ready;
-  await loadChapter(Math.min(pr.ch || 0, b.spine.length - 1), { off: pr.off || 0 });
-  publishState();
-  N.perf("open_book", Math.round(performance.now() - t0));
-  setTimeout(measureAll, 400);
+  try {
+    await document.fonts.ready;
+    await loadChapter(Math.min(pr.ch || 0, b.spine.length - 1), { off: pr.off || 0 });
+    if (!R || st.book !== b) return;
+    readerMachine.transition("ready");
+    publishState();
+    N.perf("open_book", Math.round(performance.now() - t0));
+    setTimeout(measureAll, 400);
+  } catch (e) {
+    if (R && R.r) R.r.remove();
+    R = null; st.book = null; st.busy = false; scr.classList.remove("reading", "ui");
+    try { N.reading(false); N.bars(true, !darkUI()); } catch (ignored) { }
+    if (st.tab !== "library") setTab("library", false); else renderLibrary();
+    dropBookCss();
+    readerMachine.transition("error"); readerMachine.transition("closed"); publishState();
+    toast("无法打开这本书");
+  }
 }
 function rectIn(elm) { const a = elm.getBoundingClientRect(), s = scr.getBoundingClientRect(); return { x: a.left - s.left, y: a.top - s.top, w: a.width, h: a.height }; }
 function zoomFromCover(coverEl, r) {
@@ -1691,7 +1846,7 @@ function zoomFromCover(coverEl, r) {
 function closeBook() {
   if (!R) return;
   clearTurnQueue();
-  if (st.busy) return;
+  if (st.busy || !readerMachine.is("ready")) return;
   if (!readerMachine.transition("close").ok) return;
   publishState();
   const b = st.book; savePos(true);
@@ -1949,7 +2104,10 @@ async function runTurnQueue() {
     clearTurnQueue(); turnRunner = null;
   }
 }
-function turn(dir) { return queueTurn(dir); }
+function turn(dir) {
+  if (!R || (readerMachine.state !== "ready" && readerMachine.state !== "turning") || (st.busy && readerMachine.is("ready"))) return Promise.resolve();
+  return queueTurn(dir);
+}
 async function animateTurn(dir, fast = false) {
   if (!R) return;
   if (!readerMachine.transition("turn").ok) return;
@@ -2091,8 +2249,9 @@ function bindReader() {
     const w = st.busy ? null : wordAt(e.clientX, e.clientY);
     down = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now(), target: e.target, locked: false, selecting: false, cancelled: false,
       dbl: near && !!w, w, span: null, anchor: null, sel: null, last: null, edge: 0, edgeT: null, active: true };
+    readerGestureMachine.reset(); readerGestureMachine.transition("press"); publishState();
     try { r.setPointerCapture(e.pointerId); } catch (ignored) { }
-    if (down.dbl) { lastTap = null; down.active = false; lookupInBook(wrapWord(w)); down = null; return; }
+    if (down.dbl) { lastTap = null; down.active = false; readerGestureMachine.transition("release"); publishState(); lookupInBook(wrapWord(w)); down = null; return; }
     if (w) armPress(down);
     else if (st.busy) {
       // 翻页/开书动画没结束时手底下压着的是克隆页，测不出词；等动画结束再补测一次，
@@ -2111,10 +2270,12 @@ function bindReader() {
     clearTimeout(d.pressT); clearTimeout(d.lockT);
     d.pressT = setTimeout(() => {
       if (down !== d) return;
+      readerGestureMachine.transition("feedback"); publishState();
       d.span = wrapWord(d.w); d.span.classList.add("press"); d.sentence = sentenceOf(d.span);
     }, 130);
     d.lockT = setTimeout(() => {
       if (down !== d || !d.active || d.cancelled) return;
+      readerGestureMachine.transition("lock"); publishState();
       d.locked = true; d.state = "locked";
       d.span = d.span || wrapWord(d.w); d.sentence = d.sentence || sentenceOf(d.span);
       d.span.classList.remove("press"); d.span.classList.add("locked");
@@ -2124,6 +2285,7 @@ function bindReader() {
   const cancelBeforeLock = d => {
     clearTimeout(d.pressT); clearTimeout(d.lockT);
     d.cancelled = true;
+    readerGestureMachine.transition("cancel"); publishState();
     if (d.span && !d.span.classList.contains("hl")) { d.span.classList.remove("press", "locked"); unwrap(d.span); d.span = null; }
   };
   r.addEventListener("pointermove", e => {
@@ -2139,6 +2301,7 @@ function bindReader() {
       down.anchor = wordAt(down.x, down.y);
       down.selecting = !!down.anchor;
       down.state = down.selecting ? "selecting" : "locked";
+      if (down.selecting) { readerGestureMachine.transition("select"); publishState(); }
       r.classList.toggle("selection-mode", down.selecting);
     }
     if (down.selecting) extendSel(down, e.clientX, e.clientY);
@@ -2147,6 +2310,7 @@ function bindReader() {
     if (!down || e.pointerId !== down.pointerId) return;
     const d = down; d.active = false; clearTimeout(d.pressT); clearTimeout(d.lockT); clearTimeout(d.edgeT);
     down = null; r.classList.remove("selection-mode", "sel-edge-left", "sel-edge-right");
+    readerGestureMachine.transition("release"); publishState();
     try { r.releasePointerCapture(e.pointerId); } catch (ignored) { }
     if (d.span) d.span.classList.remove("press", "locked");
     if (d.sel) { finishSel(d); return; }
@@ -2189,6 +2353,7 @@ function bindReader() {
     if (!down || e.pointerId !== down.pointerId) return;
     clearTimeout(down.pressT); clearTimeout(down.lockT); clearTimeout(down.edgeT);
     down.active = false; if (down.span) { down.span.classList.remove("press", "locked"); unwrap(down.span); }
+    readerGestureMachine.transition("cancel"); publishState();
     down = null; r.classList.remove("selection-mode", "sel-edge-left", "sel-edge-right");
   });
   r.addEventListener("click", e => {
@@ -2327,6 +2492,7 @@ function renderReadingTarget(target, type, sr) {
   const text = target.text;   // 只翻选中的这段，不再把选区换成整句
   hideLookup({ preserveSelection: true });
   activeTarget = Object.assign({}, target, { type, text });
+  lookupMachine.transition("select");
   st.lkSentence = target.sentence || ""; st.lkWord = target.focusWord || "";
   const anchor = sr || target.anchor || rectOfRange(target.lastRange || target.range);
   const phraseInfo = isPhrase ? lookupWord(text) : null;
@@ -2449,31 +2615,41 @@ function translateAwait(text, ctxText) {
   if (!N.hasTr()) return Promise.resolve("");
   return new Promise(resolve => {
     let done = false; const id = ++trSeq; let out = "";
-    trWait[id] = d => {
+    const machine = asyncRequestMachine("translate", id); machine.transition("start");
+    const fn = d => {
+      if (done) return;
       if (d.delta) out += d.delta;
       if (d.done && !done) { done = true; trCache.set(payload, out); resolve(out); }
       if (d.error && !done) { done = true; resolve(out || ""); }
     };
+    fn.machine = machine; trWait[id] = fn;
     N.translate(id, payload, false);
-    setTimeout(() => { if (!done) { done = true; resolve(out || ""); } }, 20000);
+    setTimeout(() => {
+      if (done) return;
+      done = true; machine.transition("timeout"); delete trWait[id]; resolve(out || "");
+    }, 20000);
   });
 }
 let excerptState = null;
 const EXCERPT_RATIOS = [["34", "3:4 聊天"], ["916", "9:16 竖屏"], ["11", "1:1 方形"]];
-async function openExcerptSheet(state) {
+async function openExcerptSheet(state, req) {
   if (!settings.excerptRatio || !EXCERPT_H[settings.excerptRatio]) settings.excerptRatio = "34";
-  excerptState = Object.assign({ ratio: settings.excerptRatio, dataUrl: "" }, state);
+  if (!excerptMachine.transition("open").ok) return;
+  req = req || excerptRequest.begin(state);
+  excerptState = Object.assign({ ratio: settings.excerptRatio, dataUrl: "", request: req }, state);
   const chips = EXCERPT_RATIOS.map(([k, t]) => `<button data-ex-ratio="${k}" aria-pressed="${excerptState.ratio === k}">${t}</button>`).join("");
   openSheet(`<div class="sh-body"><div class="ex-sheet">
     <div class="ex-preview"><img id="ex-img" alt="书摘卡预览"></div>
     <div class="ex-ratios">${chips}</div>
     <div class="acts"><button class="pill alt" data-ex-cancel="1">取消</button><button class="pill primary" id="ex-share">分享</button></div>
-  </div></div>`, "ex-wrap");
+  </div></div>`, "ex-wrap", () => { excerptRequest.cancel(); excerptState = null; excerptMachine.transition("cancel"); publishState(); });
   await renderExcerptPreview();
 }
 async function renderExcerptPreview() {
   if (!excerptState) return;
+  const req = excerptState.request;
   const url = await excerptCanvas(excerptState);
+  if (!excerptState || !excerptRequest.isCurrent(req)) return;
   excerptState.dataUrl = url;
   const img = $("#ex-img");
   if (img) img.src = url;
@@ -2484,6 +2660,8 @@ async function shareExcerpt(btn) {
   if (!t || !R) return;
   const quote = (t.text || "").replace(/\s+/g, " ").trim();
   if (!quote) return;
+  const req = excerptRequest.begin();
+  if (!excerptMachine.transition("generate").ok) return;
   const label = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; btn.textContent = "生成中…"; }
   try {
@@ -2492,9 +2670,11 @@ async function shareExcerpt(btn) {
     if (out) { const s2 = await excerptWaitTranslation(out); if (s2 && !BAD_TRANS.test(s2)) trans = s2; }
     if (!trans) trans = (await translateAwait(quote, t.sentence)).trim();
     if (trans && BAD_TRANS.test(trans)) trans = "";
-    await openExcerptSheet({ quote, trans, title: st.book?.title || "", author: st.book?.author || "" });
+    if (!excerptRequest.isCurrent(req)) return;
+    await openExcerptSheet({ quote, trans, title: st.book?.title || "", author: st.book?.author || "" }, req);
     if (!trans) toast("没拿到译文，先分享原文");
   } catch (e) {
+    excerptMachine.transition("error"); publishState();
     toast("生成书摘失败");
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = label; }
@@ -2504,6 +2684,7 @@ async function shareExcerpt(btn) {
 /* ---------- 阅读中查词 ---------- */
 function lookupInBook(span) {
   activeTarget = null;
+  lookupMachine.transition("select");
   $$(".w.hl", R.flow).forEach(s => { if (s !== span) { s.classList.remove("hl"); unwrap(s); } });
   span.classList.add("hl");
   const info = lookupWord(span.textContent), lk = R.lk, sentence = sentenceOf(span);
@@ -2574,6 +2755,7 @@ function hideLookup(opts = {}) {
   $$(".w.hl", R.flow).forEach(s => { s.classList.remove("hl"); if (s.classList.contains("sv")) s.classList.remove("tmp"); else unwrap(s); });
   st.lkSentence = ""; st.lkWord = "";
   activeTarget = null;
+  lookupMachine.transition("clear");
 }
 let formsKey = "", formsRe = null;
 function markSaved() {
@@ -2727,9 +2909,13 @@ function openSettings() {
 }
 
 handlers.update = d => {
+  d = d || {};
+  if (d.id != null && updateRequest.value != null && String(d.id) !== String(updateRequest.value)) return;
   const b = sheet.querySelector('[data-st="update"]');
   if (!b) return;
   const state = d.state || "error";
+  const event = { checking: "check", available: "available", current: "current", downloading: "download", ready: "ready", permission: "permission", error: "error" }[state];
+  if (!event || !updateMachine.transition(event).ok) return;
   b.dataset.updateState = state;
   b.disabled = state === "checking" || state === "downloading";
   if (state === "checking") b.textContent = "正在检查";
@@ -2742,6 +2928,7 @@ handlers.update = d => {
   else if (state === "permission") { b.disabled = false; b.textContent = "允许后再试"; toast(d.msg || "请允许安装未知应用"); }
   else if (state === "current") { b.disabled = false; b.textContent = "已是最新"; toast("当前已是最新版本"); }
   else { b.disabled = false; b.dataset.updateState = "idle"; b.textContent = "检查更新"; toast(d.msg || "检查更新失败"); }
+  publishState();
 };
 sheet.addEventListener("change", e => {
   const f = e.target.closest("[data-sf]"); if (!f) return;
@@ -2773,10 +2960,13 @@ sheet.addEventListener("click", async e => {
     if (s.dataset.st === "volume") { settings.volume = !settings.volume; s.setAttribute("aria-checked", settings.volume); kv.set("settings", settings); }
     else if (s.dataset.st === "update") {
       if (s.dataset.updateState === "available") {
-        s.dataset.updateState = "downloading"; s.disabled = true; s.textContent = "准备下载"; N.installUpdate();
+        s.dataset.updateState = "downloading"; s.disabled = true; s.textContent = "准备下载";
+        updateMachine.transition("download"); N.installUpdate(String(updateRequest.value));
       } else {
-        s.dataset.updateState = "checking"; s.disabled = true; s.textContent = "正在检查"; N.checkUpdate();
+        const req = updateRequest.begin();
+        updateMachine.transition("check"); s.dataset.updateState = "checking"; s.disabled = true; s.textContent = "正在检查"; N.checkUpdate(String(req.id));
       }
+      publishState();
     }
     else if (s.dataset.st === "clearknown") {
       if (!known.size) return;
@@ -2841,6 +3031,7 @@ const scanMachine = State.machine("scan", "closed", {
   results: { request: "requesting", cancel: "closed" },
   error: { request: "requesting", cancel: "closed" }
 });
+const scanRequest = State.request("scan");
 function scanTransition(event) {
   const result = scanMachine.transition(event);
   if (result.ok) {
@@ -2852,11 +3043,15 @@ function scanTransition(event) {
 function openCamera(fromAlbum) {
   if (st.kb) N.keyboard(false);
   document.activeElement?.blur?.();
-  scanTransition("request");
+  if (!scanTransition("request")) return;
+  const req = scanRequest.begin();
   st.awaitScan = true;
-  if (fromAlbum) N.album(); else N.camera();
+  if (fromAlbum) N.album(String(req.id)); else N.camera(String(req.id));
 }
 handlers.scanImage = d => {
+  d = d || {};
+  if (d.id != null && st.awaitScan && String(d.id) !== String(scanRequest.value ?? scanRequest.current)) return;
+  if (d.id != null && !st.awaitScan && scanMachine.is("closed")) scanRequest.begin(d.id);
   if (!scanTransition("image")) return;
   st.awaitScan = false;
   document.activeElement?.blur?.(); N.keyboard(false);
@@ -2883,9 +3078,13 @@ function placePhoto() {
   if (st.screen === "outer") Object.assign(res.style, { left: "0px", width: W + "px", top: box.y + box.h + "px", bottom: "0px", borderLeft: "0" });
   else Object.assign(res.style, { left: W - 380 + "px", width: "380px", top: top + "px", bottom: "0px", borderLeft: "0.5px solid var(--line)" });
 }
-handlers.scanCancel = () => { st.awaitScan = false; scanTransition("cancel"); };
+handlers.scanCancel = d => {
+  if (d && d.id != null && String(d.id) !== String(scanRequest.value ?? scanRequest.current)) return;
+  st.awaitScan = false; scanRequest.cancel(); scanTransition("cancel");
+};
 handlers.ocr = async r => {
   const s = st.scan; if (!s || !cam.classList.contains("on")) return;
+  if (r && r.id != null && String(r.id) !== String(scanRequest.value ?? scanRequest.current)) return;
   if (!r.ok) {
     if (!scanTransition("error")) return;
     $("#res", cam).innerHTML = `<div class="res-head"><button class="back" data-c="cancel">${I.chev}查单词</button><span class="sp"></span></div>
@@ -2952,14 +3151,14 @@ function renderScanList() {
     <div class="scroll"><ul class="list">${hard.length ? hard.map(row).join("") : '<li class="empty">这一页没有生词</li>'}${st.more ? '<li><div class="sec-s" style="padding-left:0">可能认识</div></li>' + maybe.map((x, i) => row(x, i + hard.length)).join("") : ""}</ul>
     ${maybe.length ? `<button class="more" data-c="more">${st.more ? "收起" : `还有 ${maybe.length} 个可能认识的词`}</button>` : ""}</div>`;
 }
-function closeCam() { scanTransition("cancel"); cam.classList.remove("on"); st.scan = null; }
+function closeCam() { scanRequest.cancel(); scanTransition("cancel"); cam.classList.remove("on"); st.scan = null; publishState(); }
 if (!CARD) {
   cam.addEventListener("click", e => {
     const c = e.target.closest("[data-c]");
     if (c) {
       const a = c.dataset.c;
       if (a === "cancel") closeCam();
-      else if (a === "again") { scanTransition("request"); st.awaitScan = true; N.camera(); }
+      else if (a === "again") openCamera(false);
       else if (a === "more") { st.more = !st.more; renderScanList(); }
       return;
     }
@@ -2976,7 +3175,10 @@ if (!CARD) {
     }
   });
 }
-function showWordCard(word, src) { const info = lookupWord(word); st.pickSrc = src; openSheet(`<div class="sh-body">${wordHTML(info, { close: true })}</div>`, "lk-card"); }
+function showWordCard(word, src) {
+  const info = lookupWord(word); st.pickSrc = src; lookupMachine.transition("select");
+  openSheet(`<div class="sh-body">${wordHTML(info, { close: true })}</div>`, "lk-card", () => { lookupMachine.transition("clear"); publishState(); });
+}
 
 /* ===================== 外屏 / 内屏 ===================== */
 let lastW = innerWidth;
