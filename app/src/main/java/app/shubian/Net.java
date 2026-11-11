@@ -78,7 +78,9 @@ final class Net {
     /** OpenAI-compatible streaming chat. Returns null on success or an error message. */
     static String chat(String key, String system, String user, Sink sink) throws Exception {
         // Thinking off: reasoning adds 1-3 s before the first translated character.
-        JSONObject req = new JSONObject().put("model", CHAT_MODEL).put("stream", true).put("temperature", 0.3).put("max_tokens", 1200)
+        // Translation cards contain short excerpts. Keep the output budget bounded so the
+        // provider can finish quickly while retaining the disabled-thinking fast path.
+        JSONObject req = new JSONObject().put("model", CHAT_MODEL).put("stream", true).put("temperature", 0.2).put("max_tokens", 800)
                 .put("thinking", new JSONObject().put("type", "disabled")).put("messages", new JSONArray()
                 .put(new JSONObject().put("role", "system").put("content", system))
                 .put(new JSONObject().put("role", "user").put("content", user)));

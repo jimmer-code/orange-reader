@@ -1,5 +1,10 @@
 # 开发进度
 
+## 选区翻译交互简化
+- 短语选区移除“保存短语”和分享书摘操作，只显示本地短语释义或在线兜底翻译。
+- 句子翻译保留摘录保存，分享书摘改为翻译卡片右上角图标。
+- OpenCode 翻译已使用 `thinking.type=disabled`，并把短文本输出上限收至 800 tokens，减少无谓生成等待。
+
 ## M1
 - 完成原生 Android 工程骨架，包名 `app.shubian`，minSdk 33、targetSdk 36、仅原生 View。
 - 加入 SQLite 词典资产、变形词回退、前缀查询、义项拆分和真实词条（含 wharves、hypos、knocking、mole、spleen）。

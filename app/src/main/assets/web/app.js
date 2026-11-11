@@ -76,7 +76,6 @@ const excerptMachine = State.machine("excerpt", "idle", {
 });
 const excerptRequest = State.request("excerpt");
 const saved = new Map(kv.get("saved", []));      // lemma → { src, type, t, book, pos, sentence, sense, word }
-const savedPhrases = new Map(kv.get("savedPhrases", []));
 const savedQuotes = new Map(kv.get("savedQuotes", []));
 const recents = kv.get("recents", []);
 const known = new Set(kv.get("known", []));
@@ -134,7 +133,8 @@ const I = {
   photo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M3.5 16l5-5 4 4 2.5-2.5 5 5"/><circle cx="15.5" cy="9" r="1.4"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
-  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>'
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>',
+  share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.4M8.2 13.2l7.6 4.4"/></svg>'
 };
 
 /* ===================== 词典 ===================== */
@@ -1558,7 +1558,7 @@ function toggleSave(lemma, src, btn, extra = {}) {
 scr.addEventListener("click", e => {
   const s = e.target.closest("[data-say]"); if (s) { speak(s.dataset.say); return; }
   const targetSave = e.target.closest("[data-target-save]");
-  if (targetSave && activeTarget) { toggleTargetSave(activeTarget, targetSave.dataset.targetSave, targetSave); return; }
+  if (targetSave && activeTarget && activeTarget.type === "sentence") { toggleTargetSave(activeTarget, targetSave); return; }
   const targetShare = e.target.closest("[data-target-share]");
   if (targetShare && activeTarget) { shareExcerpt(targetShare); return; }
   const exRatio = e.target.closest("[data-ex-ratio]");
@@ -2479,18 +2479,18 @@ function translateInBook(text, rect, range, ctx) {
 function targetKey(target, type) {
   return [st.book?.id || "", R?.ch ?? "", target.sentence || target.text, target.text, type].join("|");
 }
-function toggleTargetSave(target, type, btn) {
-  const map = type === "phrase" ? savedPhrases : savedQuotes, key = targetKey(target, type);
+function toggleTargetSave(target, btn) {
+  const map = savedQuotes, key = targetKey(target, "sentence");
   const existed = map.has(key);
   if (existed) {
-    map.delete(key); toast(type === "phrase" ? "已取消收藏短语" : "已取消保存摘录");
+    map.delete(key); toast("已取消保存摘录");
   } else {
     map.set(key, { text: target.text, sentence: target.sentence, book: st.book?.id || "", ch: R?.ch ?? 0, off: R ? anchorOffset() : 0, t: Date.now() });
-    toast(type === "phrase" ? "已收藏短语" : "已保存摘录");
+    toast("已保存摘录");
   }
-  kv.set(type === "phrase" ? "savedPhrases" : "savedQuotes", [...map]);
+  kv.set("savedQuotes", [...map]);
   if (btn) {
-    const on = map.has(key), label = type === "phrase" ? "短语" : "摘录";
+    const on = map.has(key), label = "摘录";
     btn.className = "pill " + (on ? "done" : "alt"); btn.textContent = on ? `已保存${label}` : `保存${label}`;
   }
 }
@@ -2508,16 +2508,17 @@ function renderReadingTarget(target, type, sr) {
   const anchor = sr || target.anchor || rectOfRange(target.lastRange || target.range);
   const phraseInfo = isPhrase ? lookupWord(text) : null;
   const offline = phraseInfo && offlinePhraseHTML(phraseInfo);
-  const map = isPhrase ? savedPhrases : savedQuotes, on = map.has(targetKey(target, type));
-  const action = on ? `已保存${label}` : `保存${label}`;
+  const on = !isPhrase && savedQuotes.has(targetKey(target, "sentence"));
+  const action = on ? "已保存摘录" : "保存摘录";
+  const share = !isPhrase ? `<button class="icbtn share" data-target-share="1" aria-label="分享书摘">${I.share}</button>` : "";
   activeTarget.offline = !!offline;
   showCard(`<div class="grab"></div><div class="reading-target">
-      <div class="target-head"><span class="target-kind">${label}</span><button class="x" data-close="1" aria-label="关闭">${I.x}</button></div>
+      <div class="target-head"><span class="target-kind">${label}</span><div class="target-head-actions">${share}<button class="x" data-close="1" aria-label="关闭">${I.x}</button></div></div>
       <div class="target-scroll">
         <div class="trx src">${esc(text)}</div>
         <div class="trx target-out" id="rt-out">${offline || (N.hasTr() ? "…" : "未配置整句翻译")}</div>
       </div>
-      <div class="acts"><button class="pill ${on ? "done" : "alt"}" data-target-save="${type}">${action}</button><button class="pill alt share" data-target-share="1">分享书摘</button></div>
+      ${isPhrase ? "" : `<div class="acts"><button class="pill ${on ? "done" : "alt"}" data-target-save="sentence">${action}</button></div>`}
     </div>`, anchor);
   if (N.hasTr() && !offline) translateText(text, $("#rt-out", R.lk), target.sentence);
 }

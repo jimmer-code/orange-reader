@@ -333,6 +333,9 @@ svg { display: block; }
 .reading-target { display: flex; flex-direction: column; min-height: 0; font-family: var(--f-ui); }
 .target-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex: none; }
 .target-head .x { width: 30px; height: 30px; }
+.target-head-actions { display: flex; align-items: center; gap: 4px; }
+.target-head-actions .share { color: var(--accent-text); }
+.target-head-actions .share svg { width: 18px; height: 18px; }
 .target-kind { color: var(--accent-text); font-size: 12px; letter-spacing: .08em; }
 /* 正文（原文 + 译文 + 提示）自己滚动，底部按钮固定不动 */
 .target-scroll { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; padding-right: 2px; }
