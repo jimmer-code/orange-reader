@@ -63,6 +63,7 @@ public abstract class WebActivity extends Activity {
     static final int REQ_IMPORT = 1, REQ_CAMERA = 2, REQ_ALBUM = 3;
 
     protected WebView web;
+    protected PageCurlView curl;
     protected Store store;
     protected final Handler main = new Handler(Looper.getMainLooper());
     protected final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -93,10 +94,20 @@ public abstract class WebActivity extends Activity {
         });
         getWindow().setDecorFitsSystemWindows(false);
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) WebView.setWebContentsDebuggingEnabled(true);
-        FrameLayout root = new FrameLayout(this);
+        PageCurlView.ReaderFrame root = new PageCurlView.ReaderFrame(this);
         web = new WebView(this);
         web.setBackgroundColor(transparent() ? Color.TRANSPARENT : getColor(R.color.bg));
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));
+        // 仿真翻页覆盖层：只在阅读时可见，平时不建 Surface
+        curl = new PageCurlView(this, new PageCurlView.Host() {
+            @Override public WebView web() { return web; }
+            @Override public android.view.Window window() { return getWindow(); }
+            @Override public void js(String code) { if (!dead) web.evaluateJavascript(code, null); }
+            @Override public void emit(String type, Object json) { WebActivity.this.emit(type, json); }
+        });
+        curl.setVisibility(View.GONE);
+        root.addView(curl, new FrameLayout.LayoutParams(-1, -1));
+        root.curl = curl;
         setContentView(root);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -122,7 +133,11 @@ public abstract class WebActivity extends Activity {
             android.graphics.Insets bars = in.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
             boolean kb = ime.bottom > 0;
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) web.getLayoutParams();
-            if (lp.bottomMargin != ime.bottom) { lp.bottomMargin = ime.bottom; web.setLayoutParams(lp); }
+            if (lp.bottomMargin != ime.bottom) {
+                lp.bottomMargin = ime.bottom; web.setLayoutParams(lp);
+                FrameLayout.LayoutParams cl = (FrameLayout.LayoutParams) curl.getLayoutParams();
+                cl.bottomMargin = ime.bottom; curl.setLayoutParams(cl);
+            }
             insetsJs = String.format(Locale.ROOT, "window.setInsets&&setInsets(%.1f,%.1f,%.1f,%.1f,%b)",
                     bars.top / d, kb ? 0 : bars.bottom / d, bars.left / d, bars.right / d, kb);
             if (pageReady) web.evaluateJavascript(insetsJs, null);
@@ -397,7 +412,25 @@ public abstract class WebActivity extends Activity {
                 else imm.hideSoftInputFromWindow(web.getWindowToken(), 0);
             });
         }
-        @JavascriptInterface public void reading(boolean on) { reading = on; }
+        @JavascriptInterface public void reading(boolean on) {
+            reading = on;
+            main.post(() -> {
+                if (!on) { curl.reset(); curl.setVisibility(View.GONE); curl.releaseBitmaps(); }
+                else curl.setVisibility(View.VISIBLE);
+            });
+        }
+        // ---- 仿真翻页（PageCurlView） ----
+        @JavascriptInterface public void curlArm(boolean on, boolean prev, boolean next, boolean spread, float x, float y, float w, float h, float dpr) {
+            main.post(() -> curl.arm(on, prev, next, spread, x, y, w, h, dpr));
+        }
+        @JavascriptInterface public void curlNavDone(int token, boolean ok) { main.post(() -> curl.navDone(token, ok)); }
+        @JavascriptInterface public void curlEndDone(int token) { main.post(() -> curl.endDone(token)); }
+        @JavascriptInterface public boolean curlAuto(int id, int dir, boolean fast) {
+            if (curl.getVisibility() != View.VISIBLE) return false;
+            java.util.concurrent.FutureTask<Boolean> f = new java.util.concurrent.FutureTask<>(() -> curl.auto(id, dir, fast));
+            main.post(f);
+            try { return f.get(500, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (Exception e) { return false; }
+        }
         @JavascriptInterface public void bars(boolean visible, boolean darkIcons) { main.post(() -> applyBars(visible, darkIcons)); }
         @JavascriptInterface public void close() { main.post(WebActivity.this::finish); }
         @JavascriptInterface public void perf(String label, long ms) { Log.i("ShubianPerf", label + " " + ms + "ms"); }

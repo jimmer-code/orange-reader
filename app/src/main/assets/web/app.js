@@ -292,6 +292,7 @@ const publishState = () => {
   };
   document.documentElement.dataset.shubianState = JSON.stringify(snapshot);
   window.__SHUBIAN_STATE__ = snapshot;
+  try { curlSync(); } catch (e) { }
 };
 
 window.setInsets = (t, b, l, r, kb) => {
@@ -2056,6 +2057,7 @@ function setPage(p) {
   R.r.classList.toggle("bm", marked);
   $('[data-r="bm"]', R.r).innerHTML = marked ? I.bmOn : I.bm;
   savePos();
+  try { curlSync(); } catch (e) { }
 }
 let saveT;
 function savePos(now) {
@@ -2123,13 +2125,19 @@ async function animateTurn(dir, fast = false) {
   if (!R) return;
   if (!readerMachine.transition("turn").ok) return;
   publishState();
-  if (R.back && ++R.back.turns > 3) clearBack();
   const stepN = R.spread ? 2 : 1, to = R.page + dir * stepN;
   const sameCh = to >= 0 && to < R.pages;
   if (!sameCh && (R.ch + dir < 0 || R.ch + dir >= st.book.spine.length)) {
     R.flow.animate([{ translate: "0" }, { translate: `${-dir * 14}px` }, { translate: "0" }], { duration: 320, easing: "ease-out" });
     readerMachine.transition("ready"); publishState(); return;
   }
+  // 仿真翻页交给原生覆盖层（PageCurlView）；原生不可用时退回下面的网页动画
+  if (!animOff() && st.turn === "curl" && typeof N.curlAuto === "function") {
+    readerMachine.transition("ready"); publishState();
+    if (await nativeAuto(dir, fast)) return;
+    if (!R || !readerMachine.transition("turn").ok) return;
+  }
+  if (R.back && ++R.back.turns > 3) clearBack();
   hideLookup(); R.r.classList.remove("ui"); scr.classList.remove("ui"); R.menu.classList.remove("on"); N.bars(false, true);
   const go = async () => { if (sameCh) setPage(to); else await loadChapter(R.ch + dir, dir > 0 ? { page: 0 } : { last: true }); };
   const mode = animOff() ? "none" : st.turn;
@@ -2183,6 +2191,71 @@ async function curl(dir, go, duration) {
   await flip.animate([{ transform: `rotateY(${keys[0]}deg)` }, { transform: `rotateY(${keys[1]}deg)` }], { duration: D, easing: ease, fill: "forwards" }).finished;
 }
 handlers.volume = d => { if (R && !sheetOpen()) turn(+d); };
+
+/* ---------- 原生仿真翻页（PageCurlView）----------
+   原生在 WebView 上方的 SurfaceView 里画卷页，跟手、可停、可抓回。网页只负责：
+   1. curlSync：告诉原生现在能不能接管水平拖动、能否前后翻、阅读区位置；
+   2. curlNav：原生截好当前页后，网页立刻（无动画）换到目标页；
+   3. curlEnd：松手后没翻过去就回到原页，然后恢复 ready。 */
+let curlArmKey = "", curlState = null, curlJobId = 0;
+const curlJobs = new Map();
+function curlSync() {
+  if (typeof N.curlArm !== "function") return;
+  let on = false, prev = false, next = false, spread = false, rc = { left: 0, top: 0, width: 0, height: 0 };
+  if (R && R.r && st.book && st.turn === "curl" && !animOff()) {
+    const g = readerGestureMachine.state;
+    on = readerMachine.is("ready") && !st.busy && !curlState && !sheetOpen() && g !== "locked" && g !== "selecting"
+      && !R.lk.classList.contains("on") && !R.menu.classList.contains("on") && R.pages > 0;
+    const step = R.spread ? 2 : 1;
+    next = R.page + step < R.pages || R.ch < st.book.spine.length - 1;
+    prev = R.page > 0 || R.ch > 0;
+    spread = !!R.spread; rc = R.r.getBoundingClientRect();
+  }
+  const key = [on, prev, next, spread, rc.left, rc.top, rc.width, rc.height].join();
+  if (key === curlArmKey) return;
+  curlArmKey = key;
+  N.curlArm(on, prev, next, spread, rc.left, rc.top, rc.width, rc.height, devicePixelRatio);
+}
+function nativeAuto(dir, fast) {
+  return new Promise(res => {
+    const id = ++curlJobId; curlJobs.set(id, res);
+    let ok = false;
+    try { ok = N.curlAuto(id, dir, !!fast); } catch (e) { }
+    if (!ok) { curlJobs.delete(id); res(false); }
+  });
+}
+handlers.curlDone = id => { const r = curlJobs.get(+id); if (r) { curlJobs.delete(+id); r(true); } };
+window.curlNav = async (token, dir) => {
+  const done = ok => { try { N.curlNavDone(token, ok); } catch (e) { } };
+  if (!R || !st.book || curlState || st.busy || !readerMachine.is("ready")) return done(false);
+  const stepN = R.spread ? 2 : 1, to = R.page + dir * stepN, sameCh = to >= 0 && to < R.pages;
+  if (!sameCh && (R.ch + dir < 0 || R.ch + dir >= st.book.spine.length)) return done(false);
+  if (!readerMachine.transition("turn").ok) return done(false);
+  curlState = { token, from: { ch: R.ch, page: R.page }, navigated: false };
+  st.busy = true;
+  hideLookup(); R.r.classList.remove("ui"); scr.classList.remove("ui"); R.menu.classList.remove("on"); N.bars(false, true);
+  publishState();
+  try {
+    if (sameCh) setPage(to); else await loadChapter(R.ch + dir, dir > 0 ? { page: 0 } : { last: true });
+    curlState.navigated = true;
+    done(true);
+  } catch (e) { done(false); }
+};
+window.curlEnd = async (token, committed) => {
+  const cs = curlState;
+  if (!cs || cs.token !== token) { try { N.curlEndDone(token); } catch (e) { } return; }
+  try {
+    if (R && !committed && cs.navigated) {
+      if (cs.from.ch === R.ch) setPage(cs.from.page); else await loadChapter(cs.from.ch, { page: cs.from.page });
+    }
+    if (R && committed && R.back && ++R.back.turns > 3) clearBack();
+  } finally {
+    curlState = null;
+    if (R) { st.busy = false; if (readerMachine.is("turning")) readerMachine.transition("ready"); }
+    publishState();
+    try { N.curlEndDone(token); } catch (e) { }
+  }
+};
 
 /* ---------- 阅读器手势 ---------- */
 function wordAt(x, y) {
@@ -2254,6 +2327,7 @@ function bindReader() {
   const r = R.r; let down = null, tapT = null, lastTap = null;
   r.addEventListener("contextmenu", e => e.preventDefault());
   r.addEventListener("pointerdown", e => {
+    try { curlSync(); } catch (err) { }
     if (e.target.closest(".rd-ui, .rmenu, .lk, button")) return;
     const near = lastTap && Date.now() - lastTap.t < 300 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30;
     clearTimeout(tapT); tapT = null;
