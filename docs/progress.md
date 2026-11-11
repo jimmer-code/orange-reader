@@ -1,5 +1,9 @@
 # 开发进度
 
+## 发布 1.28 / versionCode 29
+- 通过 `tools/publish_update.sh` 推送到 `update.lemonation.cloud`。
+- 线上清单与本地 release APK 一致，大小 25,143,685 bytes，SHA-256 `588633c9d59ef135425f6aa4be0119f89d0d6246e388859386292f56a9aefda5`。
+
 ## 选区翻译交互简化
 - 短语选区移除“保存短语”和分享书摘操作，只显示本地短语释义或在线兜底翻译。
 - 句子翻译保留摘录保存，分享书摘改为翻译卡片右上角图标。
