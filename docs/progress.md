@@ -354,3 +354,4 @@
 ### M30 追加二：公开版改用 GitHub Releases 发布
 - 公开版设置页移除服务器在线更新入口，避免依赖私有更新服务器；自用版的现有更新流程保留。
 - 公开版后续以 GitHub Releases 发布 APK，并在仓库说明中提供安装包和版本说明。
+- 首个公开仓库为 `https://github.com/jimmer-code/orange-reader`，已发布 `v1.29`，APK SHA-256 为 `af9b0dcc09dd8b3b4e4b845fb9c2793bf6a49223c4daa24e361aff99684817ad`。
