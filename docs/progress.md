@@ -359,5 +359,5 @@
 ### M30 追加三：Orange Reader 品牌与屏幕适配
 - 公开版 Android 标签、外部词典、磁贴、小组件、WebView 顶栏、设置页和 CSV 导出文件名统一改为 Orange Reader；自用版保留书边译。
 - 补充 600–719dp 的窄宽屏布局，避免小平板和分屏下固定侧栏与查词结果栏挤压；320–480dp 手机继续使用紧凑布局，720dp 以上保持宽屏布局。
-- 已发布 `v1.30`，APK SHA-256 为 `52404ba77ff7b973fc21903652ada77b1b272963e0ff2a2ad66925f7fab0c54d`。
+- 已发布 `v1.30`，APK SHA-256 为 `548a66f947d8891c60f3ab7f5e16edb85ee5e700b8de715f1f96b38f0aec2fdd`。
 - 验证：公开 APK 安装到 Android 36、1080×1920、420dpi 模拟器，应用标签和 WebView 标题均为 Orange Reader；通过 WebView 运行时检查 320、360、412、480、640、720、860dp 视口均无横向溢出。
