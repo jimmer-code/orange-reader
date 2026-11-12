@@ -13,4 +13,5 @@ final class Store {
 
     String get(String k) { return kv.getString(k, null); }
     void set(String k, String v) { kv.edit().putString(k, v).apply(); }
+    void commit(String k, String v) { kv.edit().putString(k, v).commit(); }
 }

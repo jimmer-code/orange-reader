@@ -172,6 +172,16 @@ public abstract class WebActivity extends Activity {
         super.onDestroy();
     }
 
+    @Override protected void onPause() {
+        persistWebState();
+        super.onPause();
+    }
+
+    private void persistWebState() {
+        if (dead || web == null) return;
+        web.evaluateJavascript("window.persistReadingPosition&&persistReadingPosition()", value -> { });
+    }
+
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
         int k = e.getKeyCode();
         if (reading && (k == KeyEvent.KEYCODE_VOLUME_DOWN || k == KeyEvent.KEYCODE_VOLUME_UP) && volumeKeys()) {
@@ -381,6 +391,7 @@ public abstract class WebActivity extends Activity {
         @JavascriptInterface public String formsOf(String lemmas) throws Exception { return Dict.get(WebActivity.this).formsOf(new JSONArray(lemmas)).toString(); }
         @JavascriptInterface public String kvGet(String k) { return store.get(k); }
         @JavascriptInterface public void kvSet(String k, String v) { store.set(k, v); }
+        @JavascriptInterface public void kvCommit(String k, String v) { store.commit(k, v); }
         @JavascriptInterface public boolean publicEdition() { return BuildConfig.PUBLIC_EDITION; }
         @JavascriptInterface public boolean hasJev() { return !jevKey().isEmpty(); }
         @JavascriptInterface public boolean hasTr() { return !key().isEmpty(); }

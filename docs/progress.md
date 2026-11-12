@@ -361,3 +361,9 @@
 - 补充 600–719dp 的窄宽屏布局，避免小平板和分屏下固定侧栏与查词结果栏挤压；320–480dp 手机继续使用紧凑布局，720dp 以上保持宽屏布局。
 - 已发布 `v1.30`，APK SHA-256 为 `548a66f947d8891c60f3ab7f5e16edb85ee5e700b8de715f1f96b38f0aec2fdd`。
 - 验证：公开 APK 安装到 Android 36、1080×1920、420dpi 模拟器，应用标签和 WebView 标题均为 Orange Reader；通过 WebView 运行时检查 320、360、412、480、640、720、860dp 视口均无横向溢出。
+
+### M30 追加四：退出后阅读位置持久化
+- 修复快速退出或切到后台后重新打开书籍，偶发恢复到前几页的问题。翻页时仍使用 400ms 延迟保存，页面进入 `hidden`、阅读 Activity 进入 `onPause` 以及显式关闭书籍时立即保存当前章节和字符偏移。
+- 立即保存通过 `SharedPreferences.commit()` 落盘，覆盖退后台、打开系统文件选择器、返回桌面和系统回收进程前的保存窗口；普通翻页继续使用异步写入，避免每次翻页阻塞界面。
+- 偏差：无法稳定复现用户原始时序，因此用保存时机和落盘保证修复竞态，没有改动阅读位置的章节/字符偏移格式。
+- 检查：`node --check app/src/main/assets/web/app.js`、`./gradlew testDebugUnitTest lintDebug assemblePublicEdition`、`git diff --check`。

@@ -89,7 +89,10 @@ const prog = kv.get("prog", {});                  // bookId → { ch, off, progr
 let activeTarget = null;
 let BOOKS = CARD ? [] : JSON.parse(N.books());
 const saveSaved = () => kv.set("saved", [...saved]);
-const saveProg = () => kv.set("prog", prog);
+const saveProg = sync => {
+  const value = JSON.stringify(prog);
+  if (sync && N.kvCommit) N.kvCommit("prog", value); else N.kvSet("prog", value);
+};
 const saveReaderPrefs = () => kv.set("reader", { theme: st.theme, font: st.font, size: st.size, turn: st.turn, spread: st.spread, lh: st.lh, margin: st.margin, justify: st.justify, pub: st.pub });
 const LH = { s: 1.45, m: 1.62, l: 1.8 };
 function applyTypo(r) {
@@ -2074,10 +2077,12 @@ function savePos(now) {
     pr.ch = R.ch; pr.off = anchorOffset();
     pr.progress = R.counts ? Math.min(1, (globalStart(R.ch) + R.page + (R.spread ? 2 : 1)) / totalPages())
       : Math.min(1, (R.ch + (R.page + 1) / R.pages) / st.book.spine.length);
-    saveProg();
+    saveProg(!!now);
   };
   if (now) f(); else saveT = setTimeout(f, 400);
 }
+
+window.persistReadingPosition = () => { if (R) savePos(true); };
 
 /* ---------- 翻页 ---------- */
 function sheetFor(p, side) {
@@ -3449,7 +3454,9 @@ async function startCard() {
 
 // 回到 App 时不主动弹出键盘：查单词页保持展示，键盘由用户点输入框再弹
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden" && !CARD && st.kb) { document.activeElement?.blur?.(); N.keyboard(false); }
+  if (document.visibilityState !== "hidden") return;
+  if (R) savePos(true);
+  if (!CARD && st.kb) { document.activeElement?.blur?.(); N.keyboard(false); }
 });
 
 /* ===================== 启动 ===================== */
