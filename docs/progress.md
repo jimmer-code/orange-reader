@@ -345,3 +345,8 @@
 - 为公开包名补上动态图片分享和更新 Provider authority，避免与自用版同时安装时发生冲突。
 - 在线更新按构建类型分通道：自用版使用 `shubian-translate`，公开版使用 `shubian-translate-public`；`tools/publish_update.sh` 通过 `SHUBIAN_UPDATE_CHANNEL` 发布对应清单和 APK。
 - 偏差：课程实现仍保留在共享源码中，公开构建通过导航、原生路由和空配置关闭课程功能；后续如拆分公开仓库，再从历史中移除 Notion 同步代码和页面 ID。
+
+### M30 追加：公开版设置页视觉优化
+- 设置页保留现有公开版功能和交互，优化 AI 配置卡片的视觉层级：服务状态与模型信息同排、Key 输入框有明确聚焦态、保存/测试/清除按钮区分主次。
+- 公开版设置页的小屏布局增加卡片圆角、硬投影和底部滚动留白，避免最后一项贴住面板边缘；开关改为更易识别的圆角控件。
+- 验证：`node --check app/src/main/assets/web/app.js`、`node --check app/src/main/assets/web/state.js`、`git diff --check`。
