@@ -25,7 +25,7 @@ Key 保存在 Android Keystore 中，不写入仓库、日志或 WebView 数据�
 
 公开版通过 GitHub Releases 发布
 
-<https://github.com/jiaweizhang1995/orange-reader/releases>
+<https://github.com/jimmer-code/orange-reader/releases>
 
 ## 本地构建
 
