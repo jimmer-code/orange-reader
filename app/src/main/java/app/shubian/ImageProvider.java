@@ -2,6 +2,7 @@ package app.shubian;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
+import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
@@ -11,7 +12,9 @@ import java.io.FileNotFoundException;
 
 /** Gives the system camera a writable output file and hands share images to other apps (replaces AndroidX FileProvider). */
 public class ImageProvider extends ContentProvider {
-    static final Uri CAPTURE = Uri.parse("content://app.shubian.images/capture.jpg");
+    static Uri captureUri(Context context) {
+        return Uri.parse("content://" + context.getPackageName() + ".images/capture.jpg");
+    }
 
     @Override public boolean onCreate() { return true; }
 

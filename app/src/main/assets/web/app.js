@@ -3,6 +3,7 @@
 const N = window.Native;
 const State = window.ShuState;
 if (!State) throw new Error("Shubian state runtime is missing");
+const PUBLIC_EDITION = !!N.publicEdition?.();
 const params = new URLSearchParams(location.search);
 const CARD = params.get("mode") === "card";
 const kv = {
@@ -13,7 +14,9 @@ const handlers = {};
 window.onNative = (type, data) => { const h = handlers[type]; if (h) h(data); };
 
 const DEFAULT_LEVEL = "Chinese native speaker reading English novels; passed CET-6 (about 6000 English words); comfortable with everyday and news vocabulary, weak on literary, archaic and nautical words.";
-const settings = Object.assign({ level: DEFAULT_LEVEL, volume: false, uitheme: "system", excerptRatio: "34" }, kv.get("settings", {}));
+const settings = Object.assign({ level: DEFAULT_LEVEL, volume: false, uitheme: "system", excerptRatio: "34", translation: true, jev: !PUBLIC_EDITION }, kv.get("settings", {}));
+const hasTranslation = () => N.hasTr() && settings.translation !== false;
+const hasJev = () => N.hasJev() && settings.jev !== false;
 const RS = kv.get("reader", {});
 
 /* ===================== 状态 ===================== */
@@ -243,14 +246,14 @@ scr.innerHTML = CARD ? `
       <div class="brand">书边译</div>
       <button data-tab="physical" aria-current="true">${I.search}<span>查单词</span></button>
       <button data-tab="library" aria-current="false">${I.lib}<span>书库</span></button>
-      <button data-tab="kb" aria-current="false">${I.kb}<span>课程</span></button>
+      ${PUBLIC_EDITION ? "" : `<button data-tab="kb" aria-current="false">${I.kb}<span>课程</span></button>`}
       <button data-tab="words" aria-current="false">${I.words}<span>生词本</span></button>
       <button class="gear" data-act="settings">${I.gear}<span>设置</span></button>
     </nav>
     <div class="views">
       <section class="view v-physical home" id="v-physical"></section>
       <section class="view v-library" id="v-library" hidden></section>
-      <section class="view v-kb" id="v-kb" hidden></section>
+      ${PUBLIC_EDITION ? "" : `<section class="view v-kb" id="v-kb" hidden></section>`}
       <section class="view v-words" id="v-words" hidden></section>
     </div>
   </div>
@@ -360,6 +363,7 @@ scrim.addEventListener("click", closeSheet);
 
 /* ---------- 标签切换 ---------- */
 function setTab(tab, focus = true) {
+  if (PUBLIC_EDITION && tab === "kb") return;
   if (st.tab === "kb" && tab !== "kb") kbLeaveRead();
   const changed = tabMachine.transition("set", tab);
   if (!changed.ok) return;
@@ -1499,8 +1503,8 @@ if (!CARD) {
 function wordHTML(info, opts) {
   const { lemma, form, word } = info;
   const isSaved = saved.has(lemma);
-  const ctx = opts.sentence && N.hasJev() && senseItems(info).length > 1;
-  const trs = opts.sentence && N.hasTr() ? `<button class="icbtn trs" data-trs aria-label="翻译整句">文</button>` : "";
+  const ctx = opts.sentence && hasJev() && senseItems(info).length > 1;
+  const trs = opts.sentence && hasTranslation() ? `<button class="icbtn trs" data-trs aria-label="翻译整句">文</button>` : "";
   const saveBtn = info.found ? `<button class="icbtn star${isSaved ? " on" : ""}" data-save="${esc(lemma)}" aria-label="加入生词本">${isSaved ? I.starOn : I.star}</button>` : "";
   const swap = opts.swap ? `<button class="txt-btn" data-swap style="font-size:14px">换边</button>` : "";
   const head = `<div class="wd-h"><div class="grow"><div class="hwt"><div class="hw">${esc(lemma)}</div>${trs}${saveBtn}</div>
@@ -2590,11 +2594,11 @@ function renderReadingTarget(target, type, sr) {
       <div class="target-head"><span class="target-kind">${label}</span><div class="target-head-actions">${share}<button class="x" data-close="1" aria-label="关闭">${I.x}</button></div></div>
       <div class="target-scroll">
         <div class="trx src">${esc(text)}</div>
-        <div class="trx target-out" id="rt-out">${offline || (N.hasTr() ? "…" : "未配置整句翻译")}</div>
+        ${offline || hasTranslation() ? `<div class="trx target-out" id="rt-out">${offline || "…"}</div>` : ""}
       </div>
       ${isPhrase ? "" : `<div class="acts"><button class="pill ${on ? "done" : "alt"}" data-target-save="sentence">${action}</button></div>`}
     </div>`, anchor);
-  if (N.hasTr() && !offline) translateText(text, $("#rt-out", R.lk), target.sentence);
+  if (hasTranslation() && !offline) translateText(text, $("#rt-out", R.lk), target.sentence);
 }
 
 /* ---------- 分享书摘：摘录 + 中文译文画成像素风竖版 PNG，交给系统分享面板 ---------- */
@@ -2698,7 +2702,7 @@ function translateAwait(text, ctxText) {
   const c = ctxText && ctxText.length > text.length + 20 && ctxText.length < 1500 ? `<context>${ctxText}</context>\n` : "";
   const payload = `${title}${c}<text>${text}</text>`;
   if (trCache.has(payload)) return Promise.resolve(trCache.get(payload));
-  if (!N.hasTr()) return Promise.resolve("");
+  if (!hasTranslation()) return Promise.resolve("");
   return new Promise(resolve => {
     let done = false; const id = ++trSeq; let out = "";
     const machine = asyncRequestMachine("translate", id); machine.transition("start");
@@ -2978,21 +2982,79 @@ function openThemes(forArt = false) {
 }
 
 /* ---------- 设置 ---------- */
+function settingsHTML() {
+  const deepseek = N.hasTr(), jev = N.hasJev();
+  const publicAi = PUBLIC_EDITION ? `
+      <section class="st-group">
+        <h4 class="st-sec">AI 功能</h4>
+        <p class="st-note">Key 只保存在这台设备上，直接发送到对应服务商。没有 Key 时，应用继续使用离线功能。</p>
+        <div class="st-card">
+          <div class="st-card-head"><div class="st-card-copy"><strong>DeepSeek V4.1 Flash</strong><small>官方 API · deepseek-flash</small></div><span class="st-state${deepseek ? " on" : ""}" data-ai-state="deepseek">${deepseek ? "已配置" : "未配置"}</span></div>
+          <label class="key-field"><span>API Key</span><div class="key-entry"><input type="password" data-key-input="deepseek" placeholder="粘贴 DeepSeek API Key" autocomplete="new-password" autocapitalize="off" spellcheck="false"><button class="key-toggle" data-st="toggle-key" data-key-target="deepseek" type="button">显示</button></div></label>
+          <div class="st-actions"><button class="st-btn primary" data-st="save-deepseek">保存 Key</button><button class="st-btn" data-st="test-deepseek" ${deepseek ? "" : "disabled"}>测试连接</button><button class="st-btn quiet" data-st="clear-deepseek" ${deepseek ? "" : "disabled"}>清除</button></div>
+          <p class="st-status" data-ai-status="deepseek" aria-live="polite">${hasTranslation() ? "已启用翻译入口" : deepseek ? "已配置，当前未启用翻译" : "未配置时不显示翻译入口"}</p>
+          <div class="opt st-toggle"><span>使用 LLM 翻译</span><button class="switch" role="switch" data-st="translation" aria-checked="${hasTranslation()}" aria-label="使用 LLM 翻译" ${deepseek ? "" : "disabled"}></button></div>
+        </div>
+        <div class="st-card">
+          <div class="st-card-head"><div class="st-card-copy"><strong>Jev 语境判断</strong><small>OpenRouter · jev-latest</small></div><span class="st-state${jev ? " on" : ""}" data-ai-state="jev">${jev ? "已配置" : "未配置"}</span></div>
+          <label class="key-field"><span>OpenRouter API Key</span><div class="key-entry"><input type="password" data-key-input="jev" placeholder="可选，用于本句中和拍照判断" autocomplete="new-password" autocapitalize="off" spellcheck="false"><button class="key-toggle" data-st="toggle-key" data-key-target="jev" type="button">显示</button></div></label>
+          <div class="st-actions"><button class="st-btn primary" data-st="save-jev">保存 Key</button><button class="st-btn" data-st="testjev" ${jev ? "" : "disabled"}>测试连接</button><button class="st-btn quiet" data-st="clear-jev" ${jev ? "" : "disabled"}>清除</button></div>
+          <p class="st-status" data-ai-status="jev" aria-live="polite">${hasJev() ? "已启用语境判断" : jev ? "已配置，打开开关后使用" : "可选功能，默认关闭"}</p>
+          <div class="opt st-toggle"><span>启用 Jev</span><button class="switch" role="switch" data-st="jev-enabled" aria-checked="${hasJev()}" aria-label="启用 Jev" ${jev ? "" : "disabled"}></button></div>
+        </div>
+      </section>` : "";
+  return `<div class="sh-head"><div class="sh-title"><h3>设置</h3>${PUBLIC_EDITION ? "<span>公开版</span>" : ""}</div><button class="x" data-close aria-label="关闭">${I.x}</button></div>
+    <div class="sh-body settings-body">
+      ${publicAi}
+      <section class="st-group">
+        <h4 class="st-sec">界面</h4>
+        <div class="opts st-options">
+          <div class="opt"><span>界面主题</span><span class="mini">${[["system", "跟随系统"], ["light", "浅色"], ["dark", "深色"]].map(([v, t]) => `<button data-ut="${v}" aria-pressed="${settings.uitheme === v}">${t}</button>`).join("")}</span></div>
+          <div class="opt"><span>在线更新</span><button class="txt-btn" data-st="update" data-update-state="idle">检查更新</button></div>
+          <div class="opt"><span>音量键翻页</span><button class="switch" role="switch" data-st="volume" aria-checked="${!!settings.volume}" aria-label="音量键翻页"></button></div>
+        </div>
+      </section>
+      <section class="st-group">
+        <h4 class="st-sec">阅读</h4>
+        <label class="fl"><span>读者水平</span><textarea class="field" data-sf="level">${esc(settings.level)}</textarea></label>
+        <div class="opts st-options"><div class="opt"><span>「认识」的词</span><button class="txt-btn" data-st="clearknown">${known.size ? `清除 ${known.size} 个` : "没有记录"}</button></div></div>
+      </section>
+      <div class="about">书边译 ${esc(N.version())}<br>词典 ECDICT，MIT 许可<br>字体 Literata、Source Serif 4，SIL Open Font License</div>
+    </div>`;
+}
+
+function refreshAiSettings() {
+  if (!PUBLIC_EDITION || !sheetOpen()) return;
+  const deepseek = N.hasTr(), jev = N.hasJev();
+  const deepState = $('[data-ai-state="deepseek"]', sheet), jevState = $('[data-ai-state="jev"]', sheet);
+  const deepStatus = $('[data-ai-status="deepseek"]', sheet), jevStatus = $('[data-ai-status="jev"]', sheet);
+  const deepTest = $('[data-st="test-deepseek"]', sheet), deepClear = $('[data-st="clear-deepseek"]', sheet);
+  const jevTest = $('[data-st="testjev"]', sheet), jevClear = $('[data-st="clear-jev"]', sheet);
+  const deepSwitch = $('[data-st="translation"]', sheet), jevSwitch = $('[data-st="jev-enabled"]', sheet);
+  if (deepState) { deepState.textContent = deepseek ? "已配置" : "未配置"; deepState.classList.toggle("on", deepseek); }
+  if (jevState) { jevState.textContent = jev ? "已配置" : "未配置"; jevState.classList.toggle("on", jev); }
+  if (deepStatus) deepStatus.textContent = hasTranslation() ? "已启用翻译入口" : deepseek ? "已配置，当前未启用翻译" : "未配置时不显示翻译入口";
+  if (jevStatus) jevStatus.textContent = hasJev() ? "已启用语境判断" : jev ? "已配置，打开开关后使用" : "可选功能，默认关闭";
+  if (deepTest) deepTest.disabled = !deepseek;
+  if (deepClear) deepClear.disabled = !deepseek;
+  if (jevTest) jevTest.disabled = !jev;
+  if (jevClear) jevClear.disabled = !jev;
+  if (deepSwitch) { deepSwitch.disabled = !deepseek; deepSwitch.setAttribute("aria-checked", hasTranslation()); }
+  if (jevSwitch) { jevSwitch.disabled = !jev; jevSwitch.setAttribute("aria-checked", hasJev()); }
+}
+
 function openSettings() {
   if (st.kb) N.keyboard(false);
-  openSheet(`<div class="sh-head"><h3>设置</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
-    <div class="sh-body">
-      <div class="opts" style="margin-top:0">
-        <div class="opt"><span>界面主题</span><span class="mini">${[["system", "跟随系统"], ["light", "浅色"], ["dark", "深色"]].map(([v, t]) => `<button data-ut="${v}" aria-pressed="${settings.uitheme === v}">${t}</button>`).join("")}</span></div>
-        <div class="opt"><span>Jev 判断生词</span><button class="txt-btn" data-st="testjev">测试连接</button></div>
-        <div class="opt"><span>在线更新</span><button class="txt-btn" data-st="update" data-update-state="idle">检查更新</button></div>
-        <div class="opt"><span>音量键翻页</span><button class="switch" role="switch" data-st="volume" aria-checked="${!!settings.volume}" aria-label="音量键翻页"></button></div>
-      </div>
-      <label class="fl"><span>读者水平</span><textarea class="field" data-sf="level">${esc(settings.level)}</textarea></label>
-      <div class="opts"><div class="opt"><span>「认识」的词</span><button class="txt-btn" data-st="clearknown">${known.size ? `清除 ${known.size} 个` : "没有记录"}</button></div></div>
-      <div class="about">书边译 ${esc(N.version())}<br>词典 ECDICT，MIT 许可<br>字体 Literata、Source Serif 4，SIL Open Font License</div>
-    </div>`, "", () => {});
+  openSheet(settingsHTML(), "settings-sheet", () => {});
 }
+
+const aiTestSeq = { deepseek: 0 };
+handlers.aiTest = d => {
+  if (!d || d.kind !== "deepseek" || !sheetOpen()) return;
+  const status = $('[data-ai-status="deepseek"]', sheet), button = $('[data-st="test-deepseek"]', sheet);
+  if (button) { button.disabled = false; button.textContent = "测试连接"; }
+  if (status) status.textContent = d.status === "ok" ? "连接正常，可以开始翻译" : (d.msg || "连接失败");
+};
 
 handlers.update = d => {
   d = d || {};
@@ -3024,6 +3086,12 @@ sheet.addEventListener("change", e => {
 
 sheet.addEventListener("click", async e => {
   if (e.target.closest("[data-close]")) { closeSheet(); return; }
+  const keyToggle = e.target.closest('[data-st="toggle-key"]');
+  if (keyToggle) {
+    const input = $(`[data-key-input="${keyToggle.dataset.keyTarget}"]`, sheet);
+    if (input) { input.type = input.type === "password" ? "text" : "password"; keyToggle.textContent = input.type === "password" ? "显示" : "隐藏"; }
+    return;
+  }
   const ut = e.target.closest("[data-ut]");
   if (ut) {
     settings.uitheme = ut.dataset.ut; kv.set("settings", settings); applyUITheme();
@@ -3044,6 +3112,37 @@ sheet.addEventListener("click", async e => {
   const s = e.target.closest("[data-st]");
   if (s) {
     if (s.dataset.st === "volume") { settings.volume = !settings.volume; s.setAttribute("aria-checked", settings.volume); kv.set("settings", settings); }
+    else if (s.dataset.st === "translation") {
+      if (!N.hasTr()) return;
+      settings.translation = !settings.translation; kv.set("settings", settings); refreshAiSettings();
+    } else if (s.dataset.st === "jev-enabled") {
+      if (!N.hasJev()) return;
+      settings.jev = !settings.jev; kv.set("settings", settings); refreshAiSettings();
+    } else if (s.dataset.st === "save-deepseek") {
+      const input = $('[data-key-input="deepseek"]', sheet), value = input?.value.trim() || "";
+      const status = $('[data-ai-status="deepseek"]', sheet);
+      if (!value) { if (status) status.textContent = "请先粘贴 API Key"; return; }
+      if (!N.saveDeepSeekKey(value)) { if (status) status.textContent = "保存失败，请重试"; return; }
+      input.value = ""; settings.translation = true; kv.set("settings", settings); refreshAiSettings();
+      if (status) status.textContent = "已保存，可以测试连接";
+    } else if (s.dataset.st === "clear-deepseek") {
+      N.clearDeepSeekKey(); settings.translation = false; kv.set("settings", settings); refreshAiSettings();
+    } else if (s.dataset.st === "test-deepseek") {
+      if (!N.hasTr()) return;
+      const id = ++aiTestSeq.deepseek;
+      s.disabled = true; s.textContent = "正在连接";
+      const status = $('[data-ai-status="deepseek"]', sheet); if (status) status.textContent = "正在连接官方 DeepSeek API…";
+      N.testDeepSeek(id);
+    } else if (s.dataset.st === "save-jev") {
+      const input = $('[data-key-input="jev"]', sheet), value = input?.value.trim() || "";
+      const status = $('[data-ai-status="jev"]', sheet);
+      if (!value) { if (status) status.textContent = "请先粘贴 OpenRouter API Key"; return; }
+      if (!N.saveJevKey(value)) { if (status) status.textContent = "保存失败，请重试"; return; }
+      input.value = ""; refreshAiSettings();
+      if (status) status.textContent = "已保存，打开开关后使用";
+    } else if (s.dataset.st === "clear-jev") {
+      N.clearJevKey(); settings.jev = false; kv.set("settings", settings); refreshAiSettings();
+    }
     else if (s.dataset.st === "update") {
       if (s.dataset.updateState === "available") {
         s.dataset.updateState = "downloading"; s.disabled = true; s.textContent = "准备下载";
@@ -3195,7 +3294,7 @@ async function judge(cands, passage) {
   const s = st.scan;
   cands = cands.slice().sort((a, b) => b.rank - a.rank).slice(0, 40);
   try {
-    if (!N.hasJev() || !cands.length) throw new Error("offline");
+    if (!hasJev() || !cands.length) throw new Error("offline");
     const q = {};
     cands.forEach(c => { q["hard_" + qid(c.lemma)] = { type: "noul", instructions: { word: c.w, question: NOUL.question }, criteria: NOUL.criteria }; });
     const a = await jevAsk(passage, q);
@@ -3317,7 +3416,7 @@ window.onBack = () => {
 function closeCard() { closeSheet(); setTimeout(() => N.close(), reduced ? 0 : 300); }
 function cardFor(text) {
   const words = text.match(/[A-Za-z][A-Za-z’'\-]*/g) || [];
-  if (words.length > 1 && N.hasTr()) {
+  if (words.length > 1 && hasTranslation()) {
     openSheet(`<div class="sh-head"><h3>整句翻译</h3><button class="x" data-close aria-label="关闭">${I.x}</button></div>
       <div class="sh-body"><div class="wd"><div class="trx src">${esc(text.trim())}</div><div class="trx" id="trout"></div></div></div>`, "lk-card", closeCard);
     translateText(text.trim(), $("#trout"));

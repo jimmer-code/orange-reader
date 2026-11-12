@@ -40,9 +40,9 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
-        <provider android:name=".ImageProvider" android:authorities="app.shubian.images" android:exported="false"
+        <provider android:name=".ImageProvider" android:authorities="${applicationId}.images" android:exported="false"
             android:grantUriPermissions="true" />
-        <provider android:name=".UpdateProvider" android:authorities="app.shubian.updates" android:exported="false"
+        <provider android:name=".UpdateProvider" android:authorities="${applicationId}.updates" android:exported="false"
             android:grantUriPermissions="true" />
         <service android:name=".ShubianTileService" android:label="书边译" android:icon="@drawable/ic_tile" android:exported="true"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">

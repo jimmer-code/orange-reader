@@ -17,9 +17,10 @@ import java.security.MessageDigest;
 
 /** Fetches and verifies the small update manifest and its APK. */
 final class AppUpdater {
-    static final String CHECK_URL = "https://update.lemonation.cloud/shubian-translate/latest.json";
+    private static final String CHANNEL = BuildConfig.PUBLIC_EDITION ? "shubian-translate-public" : "shubian-translate";
+    static final String CHECK_URL = "https://update.lemonation.cloud/" + CHANNEL + "/latest.json";
     private static final String HOST = "update.lemonation.cloud";
-    private static final String PATH_PREFIX = "/shubian-translate/";
+    private static final String PATH_PREFIX = "/" + CHANNEL + "/";
 
     interface Progress { void onProgress(long downloaded, long total); }
 

@@ -1,7 +1,7 @@
 plugins { id 'com.android.application' }
 
-// API keys are compiled in for this personal sideload build but never committed:
-// opencode.key (OpenCode Go account) for translation, openrouter.key for Jev via OpenRouter.
+// API keys are compiled in only for the personal sideload build and never committed:
+// opencode.key (OpenCode Go account) for personal translation, openrouter.key for personal Jev.
 // kb.base / kb.token are the 课程 content pack base URL (with its private path) and the optional
 // X-KB-Token header; see docs/notion-kb-contract.md. All of them stay out of Git.
 def lpProps = {
@@ -29,6 +29,7 @@ android {
         buildConfigField 'String', 'OPENROUTER_KEY', '"' + openrouterKey + '"'
         buildConfigField 'String', 'KB_BASE', '"' + kbBase + '"'
         buildConfigField 'String', 'KB_TOKEN', '"' + kbToken + '"'
+        buildConfigField 'boolean', 'PUBLIC_EDITION', 'false'
     }
     signingConfigs {
         release {
@@ -42,6 +43,16 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        publicEdition {
+            initWith release
+            applicationIdSuffix '.public'
+            versionNameSuffix '-public'
+            buildConfigField 'String', 'OPENCODE_KEY', '""'
+            buildConfigField 'String', 'OPENROUTER_KEY', '""'
+            buildConfigField 'String', 'KB_BASE', '""'
+            buildConfigField 'String', 'KB_TOKEN', '""'
+            buildConfigField 'boolean', 'PUBLIC_EDITION', 'true'
         }
     }
     androidResources { noCompress 'db' }

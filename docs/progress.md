@@ -336,3 +336,12 @@
 - 模拟器实测（pixel_fold API 36，单页 1168×1712 与双页 2208×1840）：拖到一半停住截图页面停在手指处；松手翻完、短拖退回；快甩翻页；往前翻；双页背面显示下一页左页；跨章往前拖住时上一章已在下面加载、跨章退回；连点 4 次翻 4 跨页；长按查词、长按后拖动选词不触发翻页；点击翻页约 58fps。release 包（混淆后）同样可用。
 - 检查：`node --check app.js`、`./gradlew testDebugUnitTest lintDebug assembleRelease` 通过，新文件无 lint 警告。
 - 发布：2026-11-11 通过 `tools/publish_update.sh` 发布 1.29/30；线上 `latest.json` 与本地 APK 大小（25,161,181 bytes）和 SHA-256（`8d51d6a29c467d66425ad0037e32b712bea1de76801f4299372c8a11eb6b46a3`）一致。
+
+## M30 公开版与用户自配 AI（未发布）
+- 新增 `publicEdition` 构建类型，包名为 `app.shubian.public`，可与自用版同时安装。公开版导航移除「课程」，`/kb/` 本地路由直接返回 404，公开构建不注入 OpenCode、OpenRouter 或课程服务器配置。
+- 公开版整句翻译改走用户自己的官方 DeepSeek API。设置页显示 DeepSeek V4.1 Flash，实际请求模型 ID 为官方 API 的 `deepseek-flash`，地址为 `https://api.deepseek.com/chat/completions`，保留流式输出和关闭思考。无 Key 时隐藏翻译入口，离线查词和阅读继续可用。
+- 公开版 Jev 改为可选的用户 OpenRouter Key，默认关闭；没有 Jev 时拍照识词按词频离线排序，词卡不显示「本句中」。
+- 用户 Key 使用 Android Keystore 加密后保存，不写入 WebView 的 kv、BuildConfig、日志或 Git。公开版设置页增加状态卡、保存/清除、显示/隐藏、测试连接和功能开关，并按外屏宽度调整为纵向布局。
+- 为公开包名补上动态图片分享和更新 Provider authority，避免与自用版同时安装时发生冲突。
+- 在线更新按构建类型分通道：自用版使用 `shubian-translate`，公开版使用 `shubian-translate-public`；`tools/publish_update.sh` 通过 `SHUBIAN_UPDATE_CHANNEL` 发布对应清单和 APK。
+- 偏差：课程实现仍保留在共享源码中，公开构建通过导航、原生路由和空配置关闭课程功能；后续如拆分公开仓库，再从历史中移除 Notion 同步代码和页面 ID。

@@ -7,7 +7,8 @@ VERSION_CODE="${3:?usage: publish_update.sh APK_PATH VERSION VERSION_CODE NOTES}
 NOTES="${4:?usage: publish_update.sh APK_PATH VERSION VERSION_CODE NOTES}"
 
 REMOTE="${SHUBIAN_UPDATE_REMOTE:-ubuntu@43.131.233.151}"
-REMOTE_DIR="/var/www/fold-ds-updates/shubian-translate"
+CHANNEL="${SHUBIAN_UPDATE_CHANNEL:-shubian-translate}"
+REMOTE_DIR="/var/www/fold-ds-updates/$CHANNEL"
 DOMAIN="update.lemonation.cloud"
 
 [[ -f "$APK_PATH" ]] || { echo "APK not found: $APK_PATH" >&2; exit 1; }
@@ -16,21 +17,21 @@ DOMAIN="update.lemonation.cloud"
 
 SHA256="$(shasum -a 256 "$APK_PATH" | awk '{print $1}')"
 SIZE="$(stat -f '%z' "$APK_PATH")"
-APK_NAME="shubian-translate-${VERSION}.apk"
+APK_NAME="${CHANNEL}-${VERSION}.apk"
 SOURCE_APK_NAME="$(basename "$APK_PATH")"
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
-python3 - "$TEMP_DIR/latest.json" "$VERSION" "$VERSION_CODE" "$DOMAIN" "$APK_NAME" "$SIZE" "$SHA256" "$NOTES" <<'PY'
+python3 - "$TEMP_DIR/latest.json" "$VERSION" "$VERSION_CODE" "$DOMAIN" "$CHANNEL" "$APK_NAME" "$SIZE" "$SHA256" "$NOTES" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
 
-output, version, version_code, domain, apk_name, size, sha256, notes = sys.argv[1:]
+output, version, version_code, domain, channel, apk_name, size, sha256, notes = sys.argv[1:]
 manifest = {
     "version": version,
     "versionCode": int(version_code),
-    "apkUrl": f"https://{domain}/shubian-translate/{apk_name}",
+    "apkUrl": f"https://{domain}/{channel}/{apk_name}",
     "size": int(size),
     "sha256": sha256,
     "notes": notes,
@@ -41,9 +42,9 @@ with open(output, "w", encoding="utf-8") as handle:
     handle.write("\n")
 PY
 
-REMOTE_TMP="/tmp/shubian-translate-update-$VERSION_CODE"
+REMOTE_TMP="/tmp/$CHANNEL-update-$VERSION_CODE"
 ssh "$REMOTE" "rm -rf '$REMOTE_TMP' && mkdir -m 0755 '$REMOTE_TMP'"
 scp "$APK_PATH" "$TEMP_DIR/latest.json" "$REMOTE:$REMOTE_TMP/"
-ssh "$REMOTE" "sudo install -d -o caddy -g caddy -m 0755 '$REMOTE_DIR' && sudo install -o caddy -g caddy -m 0644 '$REMOTE_TMP/$SOURCE_APK_NAME' '$REMOTE_DIR/$APK_NAME' && sudo install -o caddy -g caddy -m 0644 '$REMOTE_TMP/latest.json' '$REMOTE_DIR/latest.json' && rm -rf '$REMOTE_TMP' && find '$REMOTE_DIR' -maxdepth 1 -type f -name 'shubian-translate-*.apk' -printf '%T@ %p\n' | sort -nr | awk 'NR > 2 {print \$2}' | xargs -r sudo rm -f"
+ssh "$REMOTE" "sudo install -d -o caddy -g caddy -m 0755 '$REMOTE_DIR' && sudo install -o caddy -g caddy -m 0644 '$REMOTE_TMP/$SOURCE_APK_NAME' '$REMOTE_DIR/$APK_NAME' && sudo install -o caddy -g caddy -m 0644 '$REMOTE_TMP/latest.json' '$REMOTE_DIR/latest.json' && rm -rf '$REMOTE_TMP' && find '$REMOTE_DIR' -maxdepth 1 -type f -name '$CHANNEL-*.apk' -printf '%T@ %p\n' | sort -nr | awk 'NR > 2 {print \$2}' | xargs -r sudo rm -f"
 
-echo "Published 书边译 $VERSION ($VERSION_CODE): https://$DOMAIN/shubian-translate/latest.json"
+echo "Published 书边译 $CHANNEL $VERSION ($VERSION_CODE): https://$DOMAIN/$CHANNEL/latest.json"

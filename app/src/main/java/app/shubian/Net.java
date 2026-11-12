@@ -13,7 +13,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Jev and chat-completions calls. Keys are added here and never pass through the page.
+ * Jev and chat-completions calls. Provider keys are consumed only by this native network layer.
  * Connections are never disconnect()ed: on Android that closes the socket, and a fresh TLS handshake
  * costs several hundred ms. Closing the fully read stream returns it to the pool.
  */
@@ -23,8 +23,14 @@ final class Net {
     // Jev via OpenRouter (opencode.ai Zen is unreachable where the app runs).
     // Models: jev-latest or jev-1.13 (not the OpenRouter chat-router typesafe/jev-router).
     static final String JEV_URL = "https://openrouter.ai/api/v1/systemone";
-    static final String CHAT_URL = "https://opencode.ai/zen/go/v1/chat/completions";
-    static final String CHAT_MODEL = "deepseek-v4.1-flash";
+    static final String CHAT_URL = BuildConfig.PUBLIC_EDITION
+            ? "https://api.deepseek.com/chat/completions"
+            : "https://opencode.ai/zen/go/v1/chat/completions";
+    // Official DeepSeek calls use the API id deepseek-flash for DeepSeek V4.1 Flash.
+    static final String CHAT_MODEL = BuildConfig.PUBLIC_EDITION ? "deepseek-flash" : "deepseek-v4.1-flash";
+    static final String MODELS_URL = BuildConfig.PUBLIC_EDITION
+            ? "https://api.deepseek.com/models"
+            : "https://opencode.ai/zen/go/v1/models";
     // One session id per app run is enough for OpenCode Go routing.
     private static final String SESSION = "shubian-" + java.util.UUID.randomUUID();
     private static volatile long lastUse;
@@ -37,8 +43,7 @@ final class Net {
         c.setDoOutput(true);
         c.setRequestProperty("Authorization", "Bearer " + key);
         c.setRequestProperty("Content-Type", "application/json");
-        // OpenCode Go rejects chat requests without a session id; OpenRouter ignores the header.
-        c.setRequestProperty("x-opencode-session", SESSION);
+        if (!BuildConfig.PUBLIC_EDITION) c.setRequestProperty("x-opencode-session", SESSION);
         try (OutputStream o = c.getOutputStream()) { o.write(body.getBytes(StandardCharsets.UTF_8)); }
         lastUse = System.currentTimeMillis();
         return c;
@@ -54,18 +59,30 @@ final class Net {
         return b.toString("UTF-8");
     }
 
-    /** Opens a pooled connection to opencode.ai ahead of a likely translation. Skipped if one was used recently. */
+    /** Opens a pooled connection ahead of a likely translation. Skipped if one was used recently. */
     static void warm(String key) {
         if (System.currentTimeMillis() - lastUse < 30000) return;
         lastUse = System.currentTimeMillis();
         try {
-            HttpURLConnection c = (HttpURLConnection) new URL("https://opencode.ai/zen/go/v1/models").openConnection();
+            HttpURLConnection c = (HttpURLConnection) new URL(MODELS_URL).openConnection();
             c.setConnectTimeout(10000);
             c.setReadTimeout(10000);
             c.setRequestProperty("Authorization", "Bearer " + key);
             int code = c.getResponseCode();
             drain(code < 400 ? c.getInputStream() : c.getErrorStream());
         } catch (Exception ignored) { }
+    }
+
+    /** Checks a provider key without generating a billable translation. */
+    static int testKey(String key) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(MODELS_URL).openConnection();
+        c.setConnectTimeout(10000);
+        c.setReadTimeout(10000);
+        c.setRequestMethod("GET");
+        c.setRequestProperty("Authorization", "Bearer " + key);
+        int code = c.getResponseCode();
+        drain(code < 400 ? c.getInputStream() : c.getErrorStream());
+        return code;
     }
 
     /** Returns [status, body]. */

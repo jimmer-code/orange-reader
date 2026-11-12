@@ -222,6 +222,7 @@ public abstract class WebActivity extends Activity {
             } else if (path.startsWith("/scan/")) {
                 in = new FileInputStream(new File(Scan.dir(this), new File(path).getName()));
             } else if (path.startsWith("/kb/")) {
+                if (BuildConfig.PUBLIC_EDITION) return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found", null, null);
                 // 课程缓存（filesDir/kb）：文章 HTML 与图片，路径必须落在缓存目录内
                 File base = Kb.dir(this);
                 File f = new File(base, path.substring(4));
@@ -270,9 +271,10 @@ public abstract class WebActivity extends Activity {
 
     void startCamera(String requestKey) {
         pendingScanKey = requestKey;
-        Intent i = new Intent(MediaStore.ACTION_IMAGE_CAPTURE).putExtra(MediaStore.EXTRA_OUTPUT, ImageProvider.CAPTURE)
+        Uri capture = ImageProvider.captureUri(this);
+        Intent i = new Intent(MediaStore.ACTION_IMAGE_CAPTURE).putExtra(MediaStore.EXTRA_OUTPUT, capture)
                 .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        i.setClipData(ClipData.newRawUri("", ImageProvider.CAPTURE));
+        i.setClipData(ClipData.newRawUri("", capture));
         try { startActivityForResult(i, REQ_CAMERA); } catch (Exception e) { emit("toast", JSONObject.quote("没有可用的相机")); }
     }
 
@@ -290,7 +292,7 @@ public abstract class WebActivity extends Activity {
             else if (data.getData() != null) importBook(data.getData(), key);
             pendingImportKey = null;
         } else if (req == REQ_CAMERA) {
-            scan(ImageProvider.CAPTURE, pendingScanKey);
+            scan(ImageProvider.captureUri(this), pendingScanKey);
             pendingScanKey = null;
         } else if (req == REQ_ALBUM && data != null && data.getData() != null) {
             scan(data.getData(), pendingScanKey);
@@ -363,12 +365,12 @@ public abstract class WebActivity extends Activity {
     static final String ASK_PROMPT = "用户在读英文书时遇到一个词典里查不到的词。用简体中文简要解释它的意思；给了句子时，说明它在句中的意思。";
 
     String key() {
-        return BuildConfig.OPENCODE_KEY;
+        return BuildConfig.PUBLIC_EDITION ? UserSecrets.get(this, "deepseek") : BuildConfig.OPENCODE_KEY;
     }
 
     /** Jev calls go through OpenRouter, which uses its own key. */
     String jevKey() {
-        return BuildConfig.OPENROUTER_KEY;
+        return BuildConfig.PUBLIC_EDITION ? UserSecrets.get(this, "openrouter") : BuildConfig.OPENROUTER_KEY;
     }
 
     // ---------- bridge ----------
@@ -379,8 +381,41 @@ public abstract class WebActivity extends Activity {
         @JavascriptInterface public String formsOf(String lemmas) throws Exception { return Dict.get(WebActivity.this).formsOf(new JSONArray(lemmas)).toString(); }
         @JavascriptInterface public String kvGet(String k) { return store.get(k); }
         @JavascriptInterface public void kvSet(String k, String v) { store.set(k, v); }
+        @JavascriptInterface public boolean publicEdition() { return BuildConfig.PUBLIC_EDITION; }
         @JavascriptInterface public boolean hasJev() { return !jevKey().isEmpty(); }
         @JavascriptInterface public boolean hasTr() { return !key().isEmpty(); }
+        @JavascriptInterface public boolean saveDeepSeekKey(String value) {
+            if (!BuildConfig.PUBLIC_EDITION) return false;
+            try { UserSecrets.set(WebActivity.this, "deepseek", value); return true; }
+            catch (Exception e) { return false; }
+        }
+        @JavascriptInterface public void clearDeepSeekKey() {
+            if (BuildConfig.PUBLIC_EDITION) UserSecrets.clear(WebActivity.this, "deepseek");
+        }
+        @JavascriptInterface public boolean saveJevKey(String value) {
+            if (!BuildConfig.PUBLIC_EDITION) return false;
+            try { UserSecrets.set(WebActivity.this, "openrouter", value); return true; }
+            catch (Exception e) { return false; }
+        }
+        @JavascriptInterface public void clearJevKey() {
+            if (BuildConfig.PUBLIC_EDITION) UserSecrets.clear(WebActivity.this, "openrouter");
+        }
+        @JavascriptInterface public void testDeepSeek(int id) {
+            net.execute(() -> {
+                int code = 0;
+                try {
+                    String value = key();
+                    if (value.isEmpty()) throw new IllegalStateException("未配置 Key");
+                    code = Net.testKey(value);
+                    emit("aiTest", jsonQuiet("id", String.valueOf(id), "kind", "deepseek",
+                            "status", code >= 200 && code < 300 ? "ok" : "error",
+                            "msg", code >= 200 && code < 300 ? "连接正常" : "请求失败（" + code + "）"));
+                } catch (Exception e) {
+                    emit("aiTest", jsonQuiet("id", String.valueOf(id), "kind", "deepseek", "status", "error",
+                            "msg", e.getMessage() == null ? "连接失败" : e.getMessage()));
+                }
+            });
+        }
         /** True while the engine is still starting; false only when no English voice is available. */
         @JavascriptInterface public boolean canSpeak() { return !ttsFailed; }
         @JavascriptInterface public void speak(String t) {
@@ -448,7 +483,7 @@ public abstract class WebActivity extends Activity {
                     if (olds != null) for (File f : olds) if (now - f.lastModified() > 3600_000L) f.delete();
                     File out = new File(dir, "excerpt-" + now + ".png");
                     try (FileOutputStream fos = new FileOutputStream(out)) { fos.write(png); }
-                    Uri uri = Uri.parse("content://app.shubian.images/share/" + out.getName());
+                    Uri uri = Uri.parse("content://" + getPackageName() + ".images/share/" + out.getName());
                     Intent send = new Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM, uri);
                     send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     startActivity(Intent.createChooser(send, "分享书摘"));
@@ -610,7 +645,7 @@ public abstract class WebActivity extends Activity {
             }
             return;
         }
-        Uri u = UpdateProvider.uri(apk, "app.shubian.updates");
+        Uri u = UpdateProvider.uri(apk, getPackageName() + ".updates");
         Intent i = new Intent(Intent.ACTION_VIEW).setDataAndType(u, "application/vnd.android.package-archive")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try {
