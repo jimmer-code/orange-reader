@@ -3010,7 +3010,7 @@ function settingsHTML() {
         <h4 class="st-sec">界面</h4>
         <div class="opts st-options">
           <div class="opt"><span>界面主题</span><span class="mini">${[["system", "跟随系统"], ["light", "浅色"], ["dark", "深色"]].map(([v, t]) => `<button data-ut="${v}" aria-pressed="${settings.uitheme === v}">${t}</button>`).join("")}</span></div>
-          <div class="opt"><span>在线更新</span><button class="txt-btn" data-st="update" data-update-state="idle">检查更新</button></div>
+          ${PUBLIC_EDITION ? "" : '<div class="opt"><span>在线更新</span><button class="txt-btn" data-st="update" data-update-state="idle">检查更新</button></div>'}
           <div class="opt"><span>音量键翻页</span><button class="switch" role="switch" data-st="volume" aria-checked="${!!settings.volume}" aria-label="音量键翻页"></button></div>
         </div>
       </section>

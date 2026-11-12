@@ -343,10 +343,14 @@
 - 公开版 Jev 改为可选的用户 OpenRouter Key，默认关闭；没有 Jev 时拍照识词按词频离线排序，词卡不显示「本句中」。
 - 用户 Key 使用 Android Keystore 加密后保存，不写入 WebView 的 kv、BuildConfig、日志或 Git。公开版设置页增加状态卡、保存/清除、显示/隐藏、测试连接和功能开关，并按外屏宽度调整为纵向布局。
 - 为公开包名补上动态图片分享和更新 Provider authority，避免与自用版同时安装时发生冲突。
-- 在线更新按构建类型分通道：自用版使用 `shubian-translate`，公开版使用 `shubian-translate-public`；`tools/publish_update.sh` 通过 `SHUBIAN_UPDATE_CHANNEL` 发布对应清单和 APK。
+- 在线更新保留给自用版，公开版不显示服务器更新入口；公开版后续通过 GitHub Releases 发布 APK。
 - 偏差：课程实现仍保留在共享源码中，公开构建通过导航、原生路由和空配置关闭课程功能；后续如拆分公开仓库，再从历史中移除 Notion 同步代码和页面 ID。
 
 ### M30 追加：公开版设置页视觉优化
 - 设置页保留现有公开版功能和交互，优化 AI 配置卡片的视觉层级：服务状态与模型信息同排、Key 输入框有明确聚焦态、保存/测试/清除按钮区分主次。
 - 公开版设置页的小屏布局增加卡片圆角、硬投影和底部滚动留白，避免最后一项贴住面板边缘；开关改为更易识别的圆角控件。
 - 验证：`node --check app/src/main/assets/web/app.js`、`node --check app/src/main/assets/web/state.js`、`git diff --check`。
+
+### M30 追加二：公开版改用 GitHub Releases 发布
+- 公开版设置页移除服务器在线更新入口，避免依赖私有更新服务器；自用版的现有更新流程保留。
+- 公开版后续以 GitHub Releases 发布 APK，并在仓库说明中提供安装包和版本说明。
