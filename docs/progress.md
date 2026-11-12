@@ -367,3 +367,6 @@
 - 立即保存通过 `SharedPreferences.commit()` 落盘，覆盖退后台、打开系统文件选择器、返回桌面和系统回收进程前的保存窗口；普通翻页继续使用异步写入，避免每次翻页阻塞界面。
 - 偏差：无法稳定复现用户原始时序，因此用保存时机和落盘保证修复竞态，没有改动阅读位置的章节/字符偏移格式。
 - 检查：`node --check app/src/main/assets/web/app.js`、`./gradlew testDebugUnitTest lintDebug assemblePublicEdition`、`git diff --check`。
+
+### M30 追加五：1.31 阅读位置修复发布
+- 版本升到 1.31 / versionCode 32。私人版推送到 `update.lemonation.cloud`，公开版发布到 Orange Reader GitHub Releases。
