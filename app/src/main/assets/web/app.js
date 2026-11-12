@@ -1,9 +1,11 @@
 "use strict";
-/* 书边译：界面和交互来自 prototype/index.html，数据和系统能力由原生 window.Native 提供。 */
+/* Orange Reader / 书边译：界面和交互来自 prototype/index.html，数据和系统能力由原生 window.Native 提供。 */
 const N = window.Native;
 const State = window.ShuState;
 if (!State) throw new Error("Shubian state runtime is missing");
 const PUBLIC_EDITION = !!N.publicEdition?.();
+const APP_NAME = PUBLIC_EDITION ? "Orange Reader" : "书边译";
+document.title = APP_NAME;
 const params = new URLSearchParams(location.search);
 const CARD = params.get("mode") === "card";
 const kv = {
@@ -243,7 +245,7 @@ scr.innerHTML = CARD ? `
   <div class="toast" id="toast"></div>` : `
   <div class="app">
     <nav class="nav" aria-label="主导航">
-      <div class="brand">书边译</div>
+      <div class="brand">${APP_NAME}</div>
       <button data-tab="physical" aria-current="true">${I.search}<span>查单词</span></button>
       <button data-tab="library" aria-current="false">${I.lib}<span>书库</span></button>
       ${PUBLIC_EDITION ? "" : `<button data-tab="kb" aria-current="false">${I.kb}<span>课程</span></button>`}
@@ -3019,7 +3021,7 @@ function settingsHTML() {
         <label class="fl"><span>读者水平</span><textarea class="field" data-sf="level">${esc(settings.level)}</textarea></label>
         <div class="opts st-options"><div class="opt"><span>「认识」的词</span><button class="txt-btn" data-st="clearknown">${known.size ? `清除 ${known.size} 个` : "没有记录"}</button></div></div>
       </section>
-      <div class="about">书边译 ${esc(N.version())}<br>词典 ECDICT，MIT 许可<br>字体 Literata、Source Serif 4，SIL Open Font License</div>
+      <div class="about">${APP_NAME} ${esc(N.version())}<br>词典 ECDICT，MIT 许可<br>字体 Literata、Source Serif 4，SIL Open Font License</div>
     </div>`;
 }
 
