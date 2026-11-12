@@ -370,3 +370,5 @@
 
 ### M30 追加五：1.31 阅读位置修复发布
 - 版本升到 1.31 / versionCode 32。私人版推送到 `update.lemonation.cloud`，公开版发布到 Orange Reader GitHub Releases。
+- 私人版 APK：25,180,965 bytes，SHA-256 `131b409a3b0c787a9fa7a5d6e99ac382e81d9de2047a46f1f92146b082b66c9e`，清单为 `https://update.lemonation.cloud/shubian-translate/latest.json`。
+- 公开版 APK：25,180,993 bytes，SHA-256 `5af718465cad9d5b2a4d18288b049133b3bdb4a826ab548157d818ac54228700`，Release 为 `https://github.com/jimmer-code/orange-reader/releases/tag/v1.31`。
