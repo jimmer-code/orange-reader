@@ -381,3 +381,9 @@
 ### M30 追加六：自用版品牌统一与在线更新
 - 自用版应用标签、WebView 标题、导出文件名和更新下载文件名统一为 Orange Reader，课程模块和自用版在线更新入口保留。
 - 版本升到 1.32 / versionCode 33，继续使用 `https://update.lemonation.cloud/shubian-translate/latest.json` 作为自用版更新清单。
+
+### M30 追加七：换行单词取词修复发布
+- 版本升到 1.33 / versionCode 34，修复自动断词后长按取词可能命中相邻单词的问题。
+- 私人版已通过 `tools/publish_update.sh` 推送到 `update.lemonation.cloud`。
+- APK：25,181,197 bytes，SHA-256 `bcad441b3dd8a1022ab94a06541080a7f5909c988fb7ba0c1fa3168ba89cb8b0`。
+- 清单：`https://update.lemonation.cloud/shubian-translate/latest.json`，已下载 APK 并核对清单中的大小和 SHA-256。
