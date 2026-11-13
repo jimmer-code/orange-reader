@@ -387,3 +387,4 @@
 - 私人版已通过 `tools/publish_update.sh` 推送到 `update.lemonation.cloud`。
 - APK：25,181,197 bytes，SHA-256 `bcad441b3dd8a1022ab94a06541080a7f5909c988fb7ba0c1fa3168ba89cb8b0`。
 - 清单：`https://update.lemonation.cloud/shubian-translate/latest.json`，已下载 APK 并核对清单中的大小和 SHA-256。
+- 公开版已发布到 [Orange Reader v1.33](https://github.com/jimmer-code/orange-reader/releases/tag/v1.33)。APK：25,181,221 bytes，SHA-256 `91457d601a7a79f9c1fd062c2d341e9e936d6a21e91d1ea79e7f9b7c7f928126`，已下载 Release 资产并核对一致。
