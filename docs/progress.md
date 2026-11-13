@@ -1,5 +1,10 @@
 # 开发进度
 
+## 换行单词取词修复
+- 根因：Android WebView 在自动断词时可能只为整词 Range 返回其中一个片段的矩形，触点落在另一片段会被相邻单词命中。
+- 修复：取词缓存改为按字符 Range 收集实际矩形，整词 Range 仍用于临时包裹和后续查词；缓存失效和普通单词路径保持不变。
+- 检查：`node --check app/src/main/assets/web/app.js && git diff --check && ./gradlew clean testDebugUnitTest lintDebug assembleDebug assembleRelease` → BUILD SUCCESSFUL。
+
 ## 发布 1.28 / versionCode 29
 - 通过 `tools/publish_update.sh` 推送到 `update.lemonation.cloud`。
 - 线上清单与本地 release APK 一致，大小 25,143,685 bytes，SHA-256 `588633c9d59ef135425f6aa4be0119f89d0d6246e388859386292f56a9aefda5`。

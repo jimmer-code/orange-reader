@@ -2293,8 +2293,18 @@ function wordAt(x, y) {
       entries = { text, words: [] };
       const re = /[A-Za-z][A-Za-z’'\-]*/g;
       for (let m; (m = re.exec(text));) {
-        const range = document.createRange(); range.setStart(node, m.index); range.setEnd(node, m.index + m[0].length);
-        entries.words.push({ a: m.index, b: m.index + m[0].length, range, rects: [...range.getClientRects()] });
+        const a = m.index, b = m.index + m[0].length;
+        const range = document.createRange(); range.setStart(node, a); range.setEnd(node, b);
+        // Android WebView can collapse a wrapped word's Range to one fragment.
+        // Measure each character so a touch on the other fragment still maps to
+        // this word. Keep the whole-word Range for wrapWord().
+        const rects = [];
+        for (let i = a; i < b; i++) {
+          const cr = document.createRange(); cr.setStart(node, i); cr.setEnd(node, i + 1);
+          for (const rc of cr.getClientRects()) if (rc.width > 0 && rc.height > 0) rects.push(rc);
+        }
+        if (!rects.length) rects.push(...range.getClientRects());
+        entries.words.push({ a, b, range, rects });
       }
       R.wordRects.set(node, entries);
     }
