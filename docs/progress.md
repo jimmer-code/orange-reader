@@ -357,7 +357,7 @@
 - 首个公开仓库为 `https://github.com/jimmer-code/orange-reader`，已发布 `v1.29`；品牌切换和窄宽屏适配随后发布为 `v1.30`。
 
 ### M30 追加三：Orange Reader 品牌与屏幕适配
-- 公开版 Android 标签、外部词典、磁贴、小组件、WebView 顶栏、设置页和 CSV 导出文件名统一改为 Orange Reader；自用版保留书边译。
+- Android 标签、外部词典、磁贴、小组件、WebView 顶栏、设置页和 CSV 导出文件名统一改为 Orange Reader；公开版继续移除课程模块，自用版保留课程模块。
 - 补充 600–719dp 的窄宽屏布局，避免小平板和分屏下固定侧栏与查词结果栏挤压；320–480dp 手机继续使用紧凑布局，720dp 以上保持宽屏布局。
 - 已发布 `v1.30`，APK SHA-256 为 `548a66f947d8891c60f3ab7f5e16edb85ee5e700b8de715f1f96b38f0aec2fdd`。
 - 验证：公开 APK 安装到 Android 36、1080×1920、420dpi 模拟器，应用标签和 WebView 标题均为 Orange Reader；通过 WebView 运行时检查 320、360、412、480、640、720、860dp 视口均无横向溢出。
@@ -372,3 +372,7 @@
 - 版本升到 1.31 / versionCode 32。私人版推送到 `update.lemonation.cloud`，公开版发布到 Orange Reader GitHub Releases。
 - 私人版 APK：25,180,965 bytes，SHA-256 `131b409a3b0c787a9fa7a5d6e99ac382e81d9de2047a46f1f92146b082b66c9e`，清单为 `https://update.lemonation.cloud/shubian-translate/latest.json`。
 - 公开版 APK：25,180,993 bytes，SHA-256 `5af718465cad9d5b2a4d18288b049133b3bdb4a826ab548157d818ac54228700`，Release 为 `https://github.com/jimmer-code/orange-reader/releases/tag/v1.31`。
+
+### M30 追加六：自用版品牌统一与在线更新
+- 自用版应用标签、WebView 标题、导出文件名和更新下载文件名统一为 Orange Reader，课程模块和自用版在线更新入口保留。
+- 版本升到 1.32 / versionCode 33，继续使用 `https://update.lemonation.cloud/shubian-translate/latest.json` 作为自用版更新清单。

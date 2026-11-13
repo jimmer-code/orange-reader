@@ -43,7 +43,7 @@ final class AppUpdater {
         if (dir == null) dir = new File(context.getFilesDir(), "updates");
         if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("无法创建更新目录");
         String version = manifest.getString("version").replaceAll("[^0-9A-Za-z._-]", "_");
-        File target = new File(dir, "shubian-translate-" + version + ".apk");
+        File target = new File(dir, "orange-reader-" + version + ".apk");
         File part = new File(dir, target.getName() + ".part");
         if (part.exists() && !part.delete()) throw new Exception("无法覆盖旧的下载");
 

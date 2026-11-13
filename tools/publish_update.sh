@@ -47,4 +47,4 @@ ssh "$REMOTE" "rm -rf '$REMOTE_TMP' && mkdir -m 0755 '$REMOTE_TMP'"
 scp "$APK_PATH" "$TEMP_DIR/latest.json" "$REMOTE:$REMOTE_TMP/"
 ssh "$REMOTE" "sudo install -d -o caddy -g caddy -m 0755 '$REMOTE_DIR' && sudo install -o caddy -g caddy -m 0644 '$REMOTE_TMP/$SOURCE_APK_NAME' '$REMOTE_DIR/$APK_NAME' && sudo install -o caddy -g caddy -m 0644 '$REMOTE_TMP/latest.json' '$REMOTE_DIR/latest.json' && rm -rf '$REMOTE_TMP' && find '$REMOTE_DIR' -maxdepth 1 -type f -name '$CHANNEL-*.apk' -printf '%T@ %p\n' | sort -nr | awk 'NR > 2 {print \$2}' | xargs -r sudo rm -f"
 
-echo "Published 书边译 $CHANNEL $VERSION ($VERSION_CODE): https://$DOMAIN/$CHANNEL/latest.json"
+echo "Published Orange Reader $CHANNEL $VERSION ($VERSION_CODE): https://$DOMAIN/$CHANNEL/latest.json"

@@ -4,7 +4,7 @@ const N = window.Native;
 const State = window.ShuState;
 if (!State) throw new Error("Shubian state runtime is missing");
 const PUBLIC_EDITION = !!N.publicEdition?.();
-const APP_NAME = PUBLIC_EDITION ? "Orange Reader" : "书边译";
+const APP_NAME = "Orange Reader";
 document.title = APP_NAME;
 const params = new URLSearchParams(location.search);
 const CARD = params.get("mode") === "card";

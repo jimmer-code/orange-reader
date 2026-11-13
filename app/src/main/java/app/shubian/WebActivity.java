@@ -591,7 +591,7 @@ public abstract class WebActivity extends Activity {
         }
 
         @JavascriptInterface public String exportCsv(String csv) {
-            String prefix = BuildConfig.PUBLIC_EDITION ? "orange-reader" : "书边译";
+            String prefix = "orange-reader";
             String name = prefix + "-生词本-" + new SimpleDateFormat("yyyyMMdd-HHmm", Locale.ROOT).format(new Date()) + ".csv";
             ContentValues v = new ContentValues();
             v.put(MediaStore.Downloads.DISPLAY_NAME, name);
